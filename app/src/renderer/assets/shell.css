@@ -1,0 +1,248 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #0f1115;
+  color: #e8eaed;
+}
+
+#shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #12151c;
+}
+
+#hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.hud-panel {
+  pointer-events: auto;
+  align-self: flex-start;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(20, 24, 32, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(6px);
+  font-size: 14px;
+}
+
+#menu-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  background: radial-gradient(ellipse 80% 60% at 50% 20%, #1a2230 0%, #0f1115 55%);
+  pointer-events: auto;
+}
+
+#menu-layer.menu-layer-dismissed {
+  display: none;
+}
+
+.menu-screen[hidden] {
+  display: none !important;
+}
+
+.menu-screen:not([hidden]) {
+  display: block;
+  width: min(520px, 100%);
+}
+
+.menu-screen#screen-main:not([hidden]) {
+  width: min(720px, 100%);
+}
+
+.menu-card {
+  background: rgba(20, 24, 32, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 28px 28px 24px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+}
+
+.menu-card-wide {
+  max-width: 720px;
+}
+
+.menu-title {
+  margin: 0 0 8px;
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.menu-lead {
+  margin: 0 0 24px;
+  color: rgba(232, 234, 237, 0.72);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.menu-field {
+  margin-bottom: 4px;
+}
+
+.menu-field label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: rgba(232, 234, 237, 0.65);
+  margin-bottom: 8px;
+}
+
+.menu-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.menu-row input[type='text'],
+.menu-row select {
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #12151c;
+  color: #e8eaed;
+  font-size: 0.95rem;
+}
+
+.menu-row input:focus,
+.menu-row select:focus {
+  outline: 2px solid rgba(120, 170, 255, 0.45);
+  outline-offset: 1px;
+}
+
+.menu-row button,
+.menu-grid button {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(180deg, #2a3344 0%, #1e2633 100%);
+  color: #e8eaed;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.menu-row button:hover,
+.menu-grid button:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: linear-gradient(180deg, #323c50 0%, #242d3d 100%);
+}
+
+.menu-row button:active,
+.menu-grid button:active {
+  transform: translateY(1px);
+}
+
+.menu-row button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.menu-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 22px 0;
+}
+
+.menu-hint {
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+  color: rgba(232, 234, 237, 0.55);
+  min-height: 1.2em;
+}
+
+.menu-hint.is-error {
+  color: #f5a8a8;
+}
+
+.menu-main-header .menu-lead {
+  margin-bottom: 0;
+}
+
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.btn-ghost {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: rgba(232, 234, 237, 0.85);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.menu-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.menu-grid li {
+  margin: 0;
+}
+
+.menu-grid button {
+  width: 100%;
+  text-align: left;
+  font-weight: 600;
+}
+
+.menu-grid button span {
+  display: block;
+  font-weight: 500;
+  font-size: 0.78rem;
+  color: rgba(232, 234, 237, 0.55);
+  margin-top: 4px;
+}
+
+.menu-stub-note {
+  margin: 18px 0 0;
+  font-size: 0.85rem;
+  color: rgba(232, 234, 237, 0.6);
+  min-height: 1.3em;
+}

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Culdcept Canvas</title>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+    />
+    <link href="./assets/shell.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="shell">
+      <canvas id="game" aria-label="Game canvas"></canvas>
+      <div id="hud" aria-label="Heads up display">
+        <div class="hud-panel" id="hud-status">HUD</div>
+      </div>
+    </div>
+
+    <div id="menu-layer" role="presentation">
+      <section id="screen-account" class="menu-screen" aria-labelledby="account-title">
+        <div class="menu-card">
+          <h1 id="account-title" class="menu-title">Culdcept Canvas</h1>
+          <p class="menu-lead">Sign in with a local profile (stub — no server).</p>
+
+          <div class="menu-field">
+            <label for="new-account-name">New account</label>
+            <div class="menu-row">
+              <input
+                id="new-account-name"
+                type="text"
+                autocomplete="username"
+                maxlength="32"
+                placeholder="Display name"
+              />
+              <button type="button" id="btn-create-account">Create</button>
+            </div>
+          </div>
+
+          <div class="menu-divider" role="separator"></div>
+
+          <div class="menu-field">
+            <label for="existing-account">Existing account</label>
+            <div class="menu-row">
+              <select id="existing-account" aria-label="Choose saved account">
+                <option value="">— Select —</option>
+              </select>
+              <button type="button" id="btn-use-existing">Continue</button>
+            </div>
+            <p id="account-hint" class="menu-hint"></p>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="screen-main"
+        class="menu-screen"
+        aria-labelledby="main-title"
+        hidden
+      >
+        <div class="menu-card menu-card-wide">
+          <header class="menu-main-header">
+            <div>
+              <h1 id="main-title" class="menu-title">Main menu</h1>
+              <p class="menu-lead" id="main-user-line"></p>
+            </div>
+            <button type="button" id="btn-sign-out" class="btn-ghost">Switch account</button>
+          </header>
+
+          <ul class="menu-grid" id="main-actions" aria-label="Game modes"></ul>
+          <p class="menu-stub-note" id="stub-note" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="./src/renderer.ts"></script>
+  </body>
+</html>
