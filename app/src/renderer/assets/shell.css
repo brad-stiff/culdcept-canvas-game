@@ -191,6 +191,7 @@ body {
   margin-bottom: 0;
 }
 
+.menu-main-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
