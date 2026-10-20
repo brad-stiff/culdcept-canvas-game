@@ -43,6 +43,18 @@ describe('startMatch', () => {
     expect(state.players).toHaveLength(4)
     expect(state.players.map((p) => p.id)).toEqual([0, 1, 2, 3])
   })
+
+  it('can start on Practice Field', () => {
+    const state = startMatch(
+      [
+        { name: 'A', isAi: false },
+        { name: 'B', isAi: true }
+      ],
+      { mapId: 'practice-field' }
+    )
+    expect(state.config.mapId).toBe('practice-field')
+    expect(state.config.board).toHaveLength(18)
+  })
 })
 
 describe('crossedStart', () => {
@@ -108,6 +120,9 @@ describe('resolveBattle', () => {
     keywords: [],
     itemBonusSt: 0,
     itemBonusHp: 0,
+    itemCategory: null,
+    landLimits: [],
+    itemLimits: [],
     ...partial
   })
 
@@ -120,6 +135,31 @@ describe('resolveBattle', () => {
       landLevel: 1
     })
     expect(outcome.attackerWins).toBe(true)
+  })
+
+  it('applies instant death when ST covers defender HP', () => {
+    const outcome = resolveBattle({
+      attacker: creature({ name: 'Reaper', st: 40, hp: 20, keywords: ['instant_death'] }),
+      defender: creature({ name: 'Pawn', st: 50, hp: 40 }),
+      item: null,
+      square: COLOSSEUM_BOARD[1],
+      landLevel: 1
+    })
+    expect(outcome.attackerWins).toBe(true)
+    expect(outcome.defenderRemainingHp).toBe(0)
+  })
+
+  it('ignores land bonus on scroll attack', () => {
+    const outcome = resolveBattle({
+      attacker: creature({ name: 'Mage', st: 30, hp: 20, element: 'fire', keywords: ['scroll_attack'] }),
+      defender: creature({ name: 'Wall', st: 0, hp: 25 }),
+      item: null,
+      square: COLOSSEUM_BOARD[1], // fire land
+      landLevel: 5
+    })
+    // Without land bonus (scroll), 30 ST kills 25 HP; with land would also win — assert no counter
+    expect(outcome.attackerWins).toBe(true)
+    expect(outcome.attackerRemainingHp).toBe(20)
   })
 })
 

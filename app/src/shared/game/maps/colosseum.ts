@@ -1,4 +1,5 @@
 import type { GameConfig, Square } from '../types'
+import { loopLayoutPositions } from './layout'
 
 /**
  * Culdcept Saga — Colosseum I (story opener).
@@ -51,7 +52,7 @@ export const COLOSSEUM_CONFIG: GameConfig = {
   board: COLOSSEUM_BOARD
 }
 
-/** Diamond perimeter positions for canvas layout (20 tiles, corners at 0/5/10/15). */
+/** @deprecated Prefer loopLayoutPositions — kept for callers. */
 export function colosseumLayoutPositions(
   count: number,
   cx: number,
@@ -59,24 +60,5 @@ export function colosseumLayoutPositions(
   radiusX: number,
   radiusY: number
 ): { x: number; y: number }[] {
-  const corners = [
-    { x: cx, y: cy - radiusY },
-    { x: cx + radiusX, y: cy },
-    { x: cx, y: cy + radiusY },
-    { x: cx - radiusX, y: cy }
-  ]
-  const positions: { x: number; y: number }[] = []
-  const sideLen = count / 4
-  for (let side = 0; side < 4; side++) {
-    const a = corners[side]
-    const b = corners[(side + 1) % 4]
-    for (let i = 0; i < sideLen; i++) {
-      const t = i / sideLen
-      positions.push({
-        x: a.x + (b.x - a.x) * t,
-        y: a.y + (b.y - a.y) * t
-      })
-    }
-  }
-  return positions
+  return loopLayoutPositions(count, cx, cy, radiusX, radiusY)
 }

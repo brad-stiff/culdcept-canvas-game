@@ -13,7 +13,23 @@ export type Square = {
   landValue: number
 }
 
-export type Keyword = 'attacks_first' | 'item_st' | 'item_hp'
+export type Keyword =
+  | 'attacks_first'
+  | 'item_st'
+  | 'item_hp'
+  | 'defensive'
+  | 'scroll_attack'
+  | 'critical_hit'
+  | 'regenerates'
+  | 'instant_death'
+  | 'neutralizes_weapon'
+  | 'neutralizes_armor'
+  | 'neutralizes_scroll'
+  | 'support'
+  | 'item_creature'
+
+/** Item equipment category (for Item Limit / Neutralizes). */
+export type ItemCategory = 'weapon' | 'armor' | 'scroll' | 'tool'
 
 export type MatchCard = {
   instanceId: string
@@ -26,11 +42,17 @@ export type MatchCard = {
   mhp: number
   cost: number
   abilityText: string
-  /** Parsed Phase-1 keywords only. */
+  /** Parsed Phase-3A keywords. */
   keywords: Keyword[]
   /** Item bonus magnitudes when keywords include item_st / item_hp. */
   itemBonusSt: number
   itemBonusHp: number
+  /** Set for item cards when category can be inferred. */
+  itemCategory: ItemCategory | null
+  /** Terrains this creature cannot be placed on (Land Limit). */
+  landLimits: Element[]
+  /** Item categories this creature cannot equip (Item Limit). */
+  itemLimits: ItemCategory[]
 }
 
 export type Territory = {
@@ -132,4 +154,6 @@ export type GameAction =
 export type MatchSeat = {
   name: string
   isAi: boolean
+  /** Catalog ids for a custom book; omit for seeded starter. */
+  bookCatalogIds?: string[]
 }

@@ -4,7 +4,8 @@ describe('free battle lobby', () => {
   it('defaults to local human + AI with two open seats', () => {
     const config = defaultLobbyConfig('Brad')
     expect(config.seats).toHaveLength(4)
-    expect(config.seats[0]).toMatchObject({ kind: 'human', name: 'Brad' })
+    expect(config.mapId).toBe('colosseum-i')
+    expect(config.seats[0]).toMatchObject({ kind: 'human', name: 'Brad', bookId: 'starter' })
     expect(config.seats[1].kind).toBe('ai')
     expect(canStartFreeBattle(config)).toBe(true)
     expect(filledSeats(config)).toHaveLength(2)

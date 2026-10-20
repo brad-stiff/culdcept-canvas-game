@@ -74,7 +74,7 @@
             <div>
               <h1 id="lobby-title" class="menu-title">Free Battle</h1>
               <p class="menu-lead">
-                Colosseum — 2 to 4 cepters. Local hotseat, or host/join on your LAN.
+                2 to 4 cepters — pick a map, books, then local hotseat or LAN.
               </p>
             </div>
             <button type="button" id="btn-lobby-back" class="btn-ghost">Back</button>
@@ -82,6 +82,7 @@
 
           <div id="lobby-modes" class="lobby-modes" role="group" aria-label="Play mode"></div>
           <div id="lobby-lan-panel" class="lobby-lan-panel" hidden></div>
+          <div id="lobby-map-row" class="lobby-map-row"></div>
 
           <div id="lobby-seats" class="lobby-seats" role="list"></div>
           <p id="lobby-hint" class="menu-hint" role="status"></p>
@@ -131,6 +132,45 @@
             <article id="library-detail" class="library-detail" aria-live="polite">
               <p class="menu-hint">Select a card to view details.</p>
             </article>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="screen-deck"
+        class="menu-screen menu-screen-xl"
+        aria-labelledby="deck-title"
+        hidden
+      >
+        <div class="menu-card menu-card-wide menu-card-library">
+          <header class="menu-main-header">
+            <div>
+              <h1 id="deck-title" class="menu-title">Deck builder</h1>
+              <p class="menu-lead">50-card books — 34 creatures, 8 items, 8 spells.</p>
+            </div>
+            <button type="button" id="btn-deck-back" class="btn-ghost">Back</button>
+          </header>
+
+          <div class="deck-toolbar menu-row">
+            <input id="deck-name" type="text" maxlength="40" placeholder="Book name" />
+            <select id="deck-saved" aria-label="Saved books"></select>
+            <button type="button" id="btn-deck-new">New</button>
+            <button type="button" id="btn-deck-save">Save</button>
+            <button type="button" id="btn-deck-delete" class="btn-ghost">Delete</button>
+          </div>
+          <div class="library-filters menu-row">
+            <input id="deck-search" type="search" placeholder="Search catalog" />
+            <select id="deck-kind" aria-label="Card kind">
+              <option value="all">All kinds</option>
+              <option value="creature">Creatures</option>
+              <option value="item">Items</option>
+              <option value="spell">Spells</option>
+            </select>
+          </div>
+          <p id="deck-status" class="menu-hint" role="status"></p>
+          <div class="deck-layout">
+            <div id="deck-catalog" class="deck-pane"></div>
+            <div id="deck-book" class="deck-pane"></div>
           </div>
         </div>
       </section>

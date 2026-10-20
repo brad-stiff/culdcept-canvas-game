@@ -7,9 +7,13 @@ import {
 } from './board'
 import { resolveBattleFromState } from './combat'
 import { tollAmount, totalMagic } from './economy'
-import { COLOSSEUM_CONFIG } from './maps/colosseum'
+import { getMapConfig } from './maps'
 import {
+  buildBookFromCatalogIds,
   buildStarterBook,
+  canEquipItem,
+  canInvadeWith,
+  canPlaceOnTerrain,
   cloneHand,
   cloneMatchCard,
   resetInstanceIds,
@@ -27,7 +31,7 @@ import type {
   Territory
 } from './types'
 
-export const MVP_CONFIG = COLOSSEUM_CONFIG
+export const MVP_CONFIG = getMapConfig('colosseum-i')
 
 function nextPlayerIndex(state: GameState): number {
   return (state.currentPlayerIndex + 1) % state.players.length
@@ -73,8 +77,21 @@ function withWinner(state: GameState): GameState {
   return state
 }
 
-function makePlayer(seat: MatchSeat, id: number, color: string, startMagic: number): Player {
-  const book = shuffleInPlace(buildStarterBook(id * 17 + 3))
+function bookForSeat(seat: MatchSeat, id: number): MatchCard[] {
+  if (seat.bookCatalogIds && seat.bookCatalogIds.length > 0) {
+    return shuffleInPlace(buildBookFromCatalogIds(seat.bookCatalogIds))
+  }
+  return shuffleInPlace(buildStarterBook(id * 17 + 3))
+}
+
+function makePlayer(
+  seat: MatchSeat,
+  id: number,
+  color: string,
+  startMagic: number,
+  handLimit: number
+): Player {
+  const book = bookForSeat(seat, id)
   let player: Player = {
     id,
     name: seat.name,
@@ -87,7 +104,7 @@ function makePlayer(seat: MatchSeat, id: number, color: string, startMagic: numb
     isAi: seat.isAi
   }
   for (let i = 0; i < 4; i++) {
-    const drawn = drawOne(player, MVP_CONFIG.handLimit)
+    const drawn = drawOne(player, handLimit)
     player = drawn.player
   }
   return player
@@ -100,26 +117,34 @@ function normalizeSeats(seats: MatchSeat[] | string[]): MatchSeat[] {
   return seats as MatchSeat[]
 }
 
-export function createInitialState(seats: MatchSeat[] | string[]): GameState {
+export type StartMatchOptions = {
+  mapId?: string
+}
+
+export function createInitialState(
+  seats: MatchSeat[] | string[],
+  options: StartMatchOptions = {}
+): GameState {
   resetInstanceIds()
   const normalized = normalizeSeats(seats)
   if (normalized.length < 2 || normalized.length > 4) {
     throw new Error('Free Battle requires 2–4 players')
   }
 
+  const config = getMapConfig(options.mapId ?? 'colosseum-i')
   const players = normalized.map((seat, id) =>
-    makePlayer(seat, id, PLAYER_COLORS[id] ?? '#888', COLOSSEUM_CONFIG.startMagic)
+    makePlayer(seat, id, PLAYER_COLORS[id] ?? '#888', config.startMagic, config.handLimit)
   )
 
   return {
-    config: COLOSSEUM_CONFIG,
+    config,
     players,
     currentPlayerIndex: 0,
     territories: [],
     phase: 'upkeep',
     lastRoll: null,
     log: [
-      `Free Battle — ${COLOSSEUM_CONFIG.mapName} (${players.length} cepters). First to ${COLOSSEUM_CONFIG.targetMagic}G (magic + symbols) wins.`
+      `Free Battle — ${config.mapName} (${players.length} cepters). First to ${config.targetMagic}G (magic + symbols) wins.`
     ],
     pendingAction: null,
     selectedSquareId: null,
@@ -223,6 +248,7 @@ function placeCreature(state: GameState, cardId: string): GameState {
   }
   const { player: without, card } = removeFromHand(player, cardId)
   if (card.kind !== 'creature' || without.magic < card.cost) return state
+  if (!canPlaceOnTerrain(card, square.terrain)) return state
   player = { ...without, magic: without.magic - card.cost }
   const territories = [
     ...cloneTerritories(state.territories),
@@ -241,7 +267,7 @@ function startBattle(state: GameState, cardId: string): GameState {
   const idx = state.currentPlayerIndex
   const player = state.players[idx]
   const card = player.hand.find((c) => c.instanceId === cardId)
-  if (!card || card.kind !== 'creature') return state
+  if (!card || !canInvadeWith(card)) return state
   return {
     ...state,
     phase: 'select_item',
@@ -266,6 +292,7 @@ function finishBattle(state: GameState, itemId: string | null): GameState {
   let item: MatchCard | null = null
   if (itemId) {
     const itemRemoved = removeFromHand(player, itemId)
+    if (!canEquipItem(attacker, itemRemoved.card)) return state
     player = itemRemoved.player
     item = itemRemoved.card
     player = { ...player, discard: [...player.discard, cloneMatchCard(item)] }
@@ -424,12 +451,16 @@ export function getAvailableActions(state: GameState): LandedAction[] {
   }
 
   if (square.squareType === 'land' && !terr) {
-    if (player.hand.some((c) => c.kind === 'creature' && c.cost <= player.magic)) {
+    if (
+      player.hand.some(
+        (c) => c.kind === 'creature' && c.cost <= player.magic && canPlaceOnTerrain(c, square.terrain)
+      )
+    ) {
       actions.push('place')
     }
     actions.push('skip')
   } else if (square.squareType === 'land' && terr && terr.ownerId !== player.id) {
-    if (player.hand.some((c) => c.kind === 'creature')) actions.push('battle')
+    if (player.hand.some((c) => canInvadeWith(c))) actions.push('battle')
     if (player.magic >= tollAmount(state, squareId)) actions.push('pay_toll')
     actions.push('skip')
   } else if (square.squareType === 'land' && terr && terr.ownerId === player.id) {
@@ -450,14 +481,24 @@ export function getAvailableActions(state: GameState): LandedAction[] {
 
 export function getSelectableCardIds(state: GameState): string[] {
   const player = state.players[state.currentPlayerIndex]
+  const squareId = state.selectedSquareId ?? player.position
+  const square = squareById(state.config.board, squareId)
   if (state.phase === 'select_creature' && state.pendingAction === 'place') {
-    return player.hand.filter((c) => c.kind === 'creature' && c.cost <= player.magic).map((c) => c.instanceId)
+    return player.hand
+      .filter(
+        (c) => c.kind === 'creature' && c.cost <= player.magic && canPlaceOnTerrain(c, square.terrain)
+      )
+      .map((c) => c.instanceId)
   }
   if (state.phase === 'select_creature' && state.pendingAction === 'battle') {
-    return player.hand.filter((c) => c.kind === 'creature').map((c) => c.instanceId)
+    return player.hand.filter((c) => canInvadeWith(c)).map((c) => c.instanceId)
   }
   if (state.phase === 'select_item') {
-    return player.hand.filter((c) => c.kind === 'item').map((c) => c.instanceId)
+    const attacker = player.hand.find((c) => c.instanceId === state.pendingAttackerId)
+    if (!attacker) return []
+    return player.hand
+      .filter((c) => c.instanceId !== attacker.instanceId && canEquipItem(attacker, c))
+      .map((c) => c.instanceId)
   }
   if (state.phase === 'select_spell') {
     return player.hand.filter((c) => isCastableSpell(c, player.magic)).map((c) => c.instanceId)
@@ -545,6 +586,6 @@ export function reduceGame(state: GameState, action: GameAction): GameState {
 }
 
 /** Ensure a freshly created match starts on roll after first upkeep. */
-export function startMatch(seats: MatchSeat[] | string[]): GameState {
-  return beginUpkeep(createInitialState(seats))
+export function startMatch(seats: MatchSeat[] | string[], options: StartMatchOptions = {}): GameState {
+  return beginUpkeep(createInitialState(seats, options))
 }

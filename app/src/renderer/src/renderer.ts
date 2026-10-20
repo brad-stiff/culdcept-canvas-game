@@ -1,5 +1,6 @@
 import '../assets/shell.css'
 import { backingSizeForCssBox } from '../../shared/canvasLayout'
+import { startMatch } from '../../shared/game/state'
 import type { MatchSeat } from '../../shared/game/types'
 import { filledSeats, type FreeBattleLobbyConfig } from '../../shared/lobby/types'
 import { GameView } from './game/GameView'
@@ -10,6 +11,8 @@ import {
   type ClientSession,
   type HostSession
 } from './lan/session'
+import { resolveBookCatalogIds } from './ui/books'
+import { createDeckBuilderController } from './ui/deckBuilder'
 import { createLibraryController } from './ui/library'
 import { createLobbyController } from './ui/lobby'
 
@@ -23,9 +26,9 @@ type StoredAccount = {
 
 const MAIN_ACTIONS: { id: string; title: string; subtitle: string }[] = [
   { id: 'story', title: 'Story', subtitle: 'Campaign (stub — out of v1 scope)' },
-  { id: 'free', title: 'Free Battle', subtitle: 'Colosseum · 2–4p · LAN' },
+  { id: 'free', title: 'Free Battle', subtitle: '2–4p · maps · LAN' },
   { id: 'library', title: 'Card library', subtitle: 'Browse Saga catalog' },
-  { id: 'deck', title: 'Deck builder', subtitle: 'Compose decks (stub)' },
+  { id: 'deck', title: 'Deck builder', subtitle: 'Compose 50-card books' },
   { id: 'card', title: 'Card builder', subtitle: 'Author cards (stub)' },
   { id: 'board', title: 'Board builder', subtitle: 'Maps & boards (stub)' },
   { id: 'avatar', title: 'Avatar builder', subtitle: 'Player look (stub)' }
@@ -33,6 +36,7 @@ const MAIN_ACTIONS: { id: string; title: string; subtitle: string }[] = [
 
 let activeGame: GameView | null = null
 let activeAccountName = 'Player'
+let activeAccountId = ''
 let hostSession: HostSession | null = null
 let clientSession: ClientSession | null = null
 let lanClientId: string | null = null
@@ -70,8 +74,19 @@ function drawIdleCanvas(ctx: CanvasRenderingContext2D, w: number, h: number): vo
   ctx.font = `${Math.round(Math.min(w, h) * 0.035)}px system-ui, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText('Choose Free Battle — Colosseum', w / 2, h / 2)
+  ctx.fillText('Choose Free Battle from the menu', w / 2, h / 2)
   ctx.restore()
+}
+
+function seatsFromLobbyConfig(config: FreeBattleLobbyConfig): MatchSeat[] {
+  return filledSeats(config).map((s) => {
+    const catalogIds = resolveBookCatalogIds(activeAccountId, s.bookId ?? 'starter')
+    return {
+      name: s.name,
+      isAi: s.kind === 'ai',
+      ...(catalogIds ? { bookCatalogIds: catalogIds } : {})
+    }
+  })
 }
 
 function stopLanSessions(): void {
@@ -94,16 +109,13 @@ function startLocalFreeBattle(
     activeGame.destroy()
   }
 
-  const seats = filledSeats(config)
-  const matchSeats: MatchSeat[] = seats.map((s) => ({
-    name: s.name,
-    isAi: s.kind === 'ai'
-  }))
-  activeGame = new GameView(canvas, shell, { seats: matchSeats }, onEnd)
+  const matchSeats = seatsFromLobbyConfig(config)
+  const initialState = startMatch(matchSeats, { mapId: config.mapId || 'colosseum-i' })
+  activeGame = new GameView(canvas, shell, { initialState }, onEnd)
 
   menuLayer.classList.add('menu-layer-dismissed')
   stubNote.textContent = ''
-  hudStatus.textContent = `Colosseum — ${matchSeats.map((s) => s.name).join(' · ')}`
+  hudStatus.textContent = `${initialState.config.mapName} — ${matchSeats.map((s) => s.name).join(' · ')}`
   layoutCanvas(canvas, shell)
 }
 
@@ -167,6 +179,7 @@ function initMenu(): void {
   const shell = document.getElementById('shell')
   const menuLayer = document.getElementById('menu-layer')
   const lobbySeats = document.getElementById('lobby-seats')
+  const lobbyMapRow = document.getElementById('lobby-map-row')
   const lobbyHint = document.getElementById('lobby-hint')
   const lobbyModes = document.getElementById('lobby-modes')
   const lobbyLanPanel = document.getElementById('lobby-lan-panel')
@@ -179,12 +192,25 @@ function initMenu(): void {
   const libraryKind = document.getElementById('library-kind')
   const libraryElement = document.getElementById('library-element')
   const btnLibraryBack = document.getElementById('btn-library-back')
+  const screenDeck = document.getElementById('screen-deck')
+  const deckCatalog = document.getElementById('deck-catalog')
+  const deckBook = document.getElementById('deck-book')
+  const deckStatus = document.getElementById('deck-status')
+  const deckName = document.getElementById('deck-name')
+  const deckSaved = document.getElementById('deck-saved')
+  const deckSearch = document.getElementById('deck-search')
+  const deckKind = document.getElementById('deck-kind')
+  const btnDeckSave = document.getElementById('btn-deck-save')
+  const btnDeckNew = document.getElementById('btn-deck-new')
+  const btnDeckDelete = document.getElementById('btn-deck-delete')
+  const btnDeckBack = document.getElementById('btn-deck-back')
 
   if (
     !(screenAccount instanceof HTMLElement) ||
     !(screenMain instanceof HTMLElement) ||
     !(screenLobby instanceof HTMLElement) ||
     !(screenLibrary instanceof HTMLElement) ||
+    !(screenDeck instanceof HTMLElement) ||
     !(newNameInput instanceof HTMLInputElement) ||
     !(btnCreate instanceof HTMLButtonElement) ||
     !(existingSelect instanceof HTMLSelectElement) ||
@@ -199,6 +225,7 @@ function initMenu(): void {
     !(shell instanceof HTMLElement) ||
     !(menuLayer instanceof HTMLElement) ||
     !(lobbySeats instanceof HTMLElement) ||
+    !(lobbyMapRow instanceof HTMLElement) ||
     !(lobbyHint instanceof HTMLParagraphElement) ||
     !(lobbyModes instanceof HTMLElement) ||
     !(lobbyLanPanel instanceof HTMLElement) ||
@@ -210,7 +237,18 @@ function initMenu(): void {
     !(librarySearch instanceof HTMLInputElement) ||
     !(libraryKind instanceof HTMLSelectElement) ||
     !(libraryElement instanceof HTMLSelectElement) ||
-    !(btnLibraryBack instanceof HTMLButtonElement)
+    !(btnLibraryBack instanceof HTMLButtonElement) ||
+    !(deckCatalog instanceof HTMLElement) ||
+    !(deckBook instanceof HTMLElement) ||
+    !(deckStatus instanceof HTMLParagraphElement) ||
+    !(deckName instanceof HTMLInputElement) ||
+    !(deckSaved instanceof HTMLSelectElement) ||
+    !(deckSearch instanceof HTMLInputElement) ||
+    !(deckKind instanceof HTMLSelectElement) ||
+    !(btnDeckSave instanceof HTMLButtonElement) ||
+    !(btnDeckNew instanceof HTMLButtonElement) ||
+    !(btnDeckDelete instanceof HTMLButtonElement) ||
+    !(btnDeckBack instanceof HTMLButtonElement)
   ) {
     return
   }
@@ -220,6 +258,7 @@ function initMenu(): void {
     screenMain,
     screenLobby,
     screenLibrary,
+    screenDeck,
     newNameInput,
     btnCreate,
     existingSelect,
@@ -237,12 +276,14 @@ function initMenu(): void {
 
   let lobby!: ReturnType<typeof createLobbyController>
   let library!: ReturnType<typeof createLibraryController>
+  let deckBuilder!: ReturnType<typeof createDeckBuilderController>
 
   function hideAllScreens(): void {
     menu.screenAccount.hidden = true
     menu.screenMain.hidden = true
     lobby.hide()
     library.hide()
+    deckBuilder.hide()
   }
 
   function setHint(text: string, isError: boolean): void {
@@ -286,6 +327,7 @@ function initMenu(): void {
     menu.mainUserLine.textContent = `Signed in as ${account.name}`
     menu.hudStatus.textContent = `HUD — ${account.name}`
     activeAccountName = account.name
+    activeAccountId = account.id
   }
 
   const returnToMain = (): void => {
@@ -297,11 +339,13 @@ function initMenu(): void {
   lobby = createLobbyController({
     root: screenLobby,
     seatsEl: lobbySeats,
+    mapRowEl: lobbyMapRow,
     hintEl: lobbyHint,
     startBtn: btnLobbyStart,
     backBtn: btnLobbyBack,
     modeRowEl: lobbyModes,
     lanPanelEl: lobbyLanPanel,
+    getAccountId: () => activeAccountId,
     onBack: () => {
       stopLanSessions()
       hideAllScreens()
@@ -328,6 +372,7 @@ function initMenu(): void {
       hostSession = await createHostSession({
         lobby: config,
         hostClientId: clientId,
+        resolveBook: (bookId) => resolveBookCatalogIds(activeAccountId, bookId),
         onLobbyChange: (lobbyConfig) => lobby.applyRemoteLobby(lobbyConfig),
         onStatus: (text) => lobby.setLanInfo(text),
         onState: (state) => {
@@ -348,7 +393,7 @@ function initMenu(): void {
               returnToMain
             )
             menu.menuLayer.classList.add('menu-layer-dismissed')
-            menu.hudStatus.textContent = 'Colosseum — LAN host'
+            menu.hudStatus.textContent = `${state.config.mapName} — LAN host`
             layoutCanvas(menu.canvas, menu.shell)
             hideAllScreens()
           }
@@ -386,7 +431,7 @@ function initMenu(): void {
         onLobby: (lobbyConfig) => lobby.applyRemoteLobby(lobbyConfig),
         onMatchStart: (_seats, yourPlayerId) => {
           lanPlayerId = yourPlayerId
-          menu.hudStatus.textContent = `Colosseum — LAN client (P${yourPlayerId + 1})`
+          menu.hudStatus.textContent = `LAN client (P${yourPlayerId + 1})`
         },
         onState: (state) => {
           if (!activeGame) {
@@ -431,6 +476,25 @@ function initMenu(): void {
     }
   })
 
+  deckBuilder = createDeckBuilderController({
+    root: screenDeck,
+    catalogEl: deckCatalog,
+    bookEl: deckBook,
+    statusEl: deckStatus,
+    nameInput: deckName,
+    savedSelect: deckSaved,
+    searchInput: deckSearch,
+    kindSelect: deckKind,
+    btnSave: btnDeckSave,
+    btnNew: btnDeckNew,
+    btnDelete: btnDeckDelete,
+    backBtn: btnDeckBack,
+    onBack: () => {
+      hideAllScreens()
+      menu.screenMain.hidden = false
+    }
+  })
+
   function buildMainActions(): void {
     menu.mainActions.innerHTML = ''
     for (const action of MAIN_ACTIONS) {
@@ -448,6 +512,15 @@ function initMenu(): void {
         if (action.id === 'library') {
           hideAllScreens()
           library.show()
+          return
+        }
+        if (action.id === 'deck') {
+          if (!activeAccountId) {
+            menu.stubNote.textContent = 'Sign in to use the deck builder.'
+            return
+          }
+          hideAllScreens()
+          deckBuilder.show(activeAccountId)
           return
         }
         menu.stubNote.textContent = `${action.title}: stub — not implemented yet.`

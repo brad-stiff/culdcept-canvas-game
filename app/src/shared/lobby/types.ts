@@ -7,10 +7,16 @@ export type LobbySeat = {
   name: string
   /** LAN client id occupying a human seat (host-local humans use null). */
   clientId: string | null
+  /**
+   * Book selection: 'starter' or saved book id.
+   * Custom books resolve via localStorage on the machine that starts the match.
+   */
+  bookId: string
 }
 
 export type FreeBattleLobbyConfig = {
   seats: LobbySeat[]
+  mapId: string
 }
 
 export type PlayMode = 'local' | 'host' | 'join'
@@ -36,11 +42,12 @@ export function canStartLanHost(config: FreeBattleLobbyConfig, hostClientId: str
 
 export function defaultLobbyConfig(localPlayerName: string): FreeBattleLobbyConfig {
   return {
+    mapId: 'colosseum-i',
     seats: [
-      { index: 0, kind: 'human', name: localPlayerName, clientId: null },
-      { index: 1, kind: 'ai', name: 'AI Rival', clientId: null },
-      { index: 2, kind: 'open', name: '', clientId: null },
-      { index: 3, kind: 'open', name: '', clientId: null }
+      { index: 0, kind: 'human', name: localPlayerName, clientId: null, bookId: 'starter' },
+      { index: 1, kind: 'ai', name: 'AI Rival', clientId: null, bookId: 'starter' },
+      { index: 2, kind: 'open', name: '', clientId: null, bookId: 'starter' },
+      { index: 3, kind: 'open', name: '', clientId: null, bookId: 'starter' }
     ]
   }
 }

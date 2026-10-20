@@ -1,3 +1,4 @@
+import { listMaps } from '../../../shared/game/maps'
 import { LAN_DEFAULT_PORT } from '../../../shared/lan/protocol'
 import {
   canStartFreeBattle,
@@ -8,6 +9,7 @@ import {
   type PlayMode,
   type SeatKind
 } from '../../../shared/lobby/types'
+import { listSavedBooks } from './books'
 
 export type LobbyController = {
   show: (localPlayerName: string) => void
@@ -33,11 +35,13 @@ function ensureClientId(): string {
 export function createLobbyController(opts: {
   root: HTMLElement
   seatsEl: HTMLElement
+  mapRowEl: HTMLElement
   hintEl: HTMLParagraphElement
   startBtn: HTMLButtonElement
   backBtn: HTMLButtonElement
   modeRowEl: HTMLElement
   lanPanelEl: HTMLElement
+  getAccountId: () => string
   onBack: () => void
   onStartLocal: (config: FreeBattleLobbyConfig) => void
   onHostReady: (config: FreeBattleLobbyConfig, clientId: string) => Promise<void>
@@ -160,10 +164,40 @@ export function createLobbyController(opts: {
     }
   }
 
+  function bookOptions(): { id: string; label: string }[] {
+    const books = listSavedBooks(opts.getAccountId())
+    return [{ id: 'starter', label: 'Starter' }, ...books.map((b) => ({ id: b.id, label: b.name }))]
+  }
+
+  function renderMapRow(): void {
+    opts.mapRowEl.innerHTML = ''
+    const locked = mode === 'join'
+    const label = document.createElement('label')
+    label.textContent = 'Map'
+    label.htmlFor = 'lobby-map-select'
+    const select = document.createElement('select')
+    select.id = 'lobby-map-select'
+    select.disabled = locked
+    for (const map of listMaps()) {
+      const opt = document.createElement('option')
+      opt.value = map.mapId
+      opt.textContent = `${map.mapName} (${map.boardSize} tiles · ${map.targetMagic}G)`
+      select.appendChild(opt)
+    }
+    select.value = config.mapId
+    select.addEventListener('change', () => {
+      config.mapId = select.value
+      if (mode === 'host' && hosting) void opts.onHostReady(config, clientId)
+    })
+    opts.mapRowEl.append(label, select)
+  }
+
   function renderSeats(): void {
     opts.seatsEl.innerHTML = ''
     const locked = mode === 'join'
+    const books = bookOptions()
     for (const seat of config.seats) {
+      if (!seat.bookId) seat.bookId = 'starter'
       const row = document.createElement('div')
       row.className = 'lobby-seat'
       row.setAttribute('role', 'listitem')
@@ -198,6 +232,18 @@ export function createLobbyController(opts: {
       nameInput.value = seat.name
       nameInput.disabled = locked || seat.kind === 'open'
 
+      const bookSelect = document.createElement('select')
+      bookSelect.disabled = locked || seat.kind === 'open'
+      bookSelect.setAttribute('aria-label', `Book for seat ${seat.index + 1}`)
+      for (const b of books) {
+        const opt = document.createElement('option')
+        opt.value = b.id
+        opt.textContent = b.label
+        bookSelect.appendChild(opt)
+      }
+      if (!books.some((b) => b.id === seat.bookId)) seat.bookId = 'starter'
+      bookSelect.value = seat.bookId
+
       kindSelect.addEventListener('change', () => {
         const kind = kindSelect.value as SeatKind
         seat.kind = kind
@@ -206,8 +252,10 @@ export function createLobbyController(opts: {
           seat.name = ''
           nameInput.value = ''
           nameInput.disabled = true
+          bookSelect.disabled = true
         } else if (kind === 'ai') {
           nameInput.disabled = false
+          bookSelect.disabled = false
           if (!seat.name) {
             seat.name = `AI ${seat.index + 1}`
             nameInput.value = seat.name
@@ -215,6 +263,7 @@ export function createLobbyController(opts: {
           seat.clientId = null
         } else {
           nameInput.disabled = false
+          bookSelect.disabled = false
           if (!seat.name) {
             seat.name = seat.index === 0 ? localPlayerName : `Player ${seat.index + 1}`
             nameInput.value = seat.name
@@ -234,7 +283,12 @@ export function createLobbyController(opts: {
         syncStartEnabled()
       })
 
-      row.append(label, kindSelect, nameInput)
+      bookSelect.addEventListener('change', () => {
+        seat.bookId = bookSelect.value
+        if (mode === 'host' && hosting) void opts.onHostReady(config, clientId)
+      })
+
+      row.append(label, kindSelect, nameInput, bookSelect)
       opts.seatsEl.appendChild(row)
     }
     syncStartEnabled()
@@ -275,6 +329,7 @@ export function createLobbyController(opts: {
       lanInfo.textContent = ''
       renderModes()
       renderLanPanel()
+      renderMapRow()
       renderSeats()
     },
     hide() {
@@ -290,6 +345,8 @@ export function createLobbyController(opts: {
     },
     applyRemoteLobby(lobby: FreeBattleLobbyConfig) {
       config = lobby
+      if (!config.mapId) config.mapId = 'colosseum-i'
+      renderMapRow()
       renderSeats()
     },
     getClientId: () => clientId

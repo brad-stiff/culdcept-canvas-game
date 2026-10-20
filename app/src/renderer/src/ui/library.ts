@@ -1,5 +1,6 @@
 import { filterSagaCards, getSagaCatalog } from '../../../shared/cards/catalog'
 import type { SagaCard, SagaCardElement, SagaCardKind } from '../../../shared/cards/types'
+import { parseKeywords } from '../../../shared/game/matchCards'
 import { resolveCardArtUrl } from './cardArt'
 
 export type LibraryController = {
@@ -40,6 +41,13 @@ export function createLibraryController(opts: {
     const artUrl = await resolveCardArtUrl(card.id, card.name)
     const element =
       card.element != null ? card.element : card.kind === 'item' ? 'item' : 'spell'
+    const parsed = parseKeywords(card.abilityText)
+    const keywordHtml =
+      parsed.keywords.length > 0
+        ? `<div class="library-keywords">${parsed.keywords
+            .map((k) => `<span>${escapeHtml(k)}</span>`)
+            .join('')}</div>`
+        : ''
 
     opts.detailEl.innerHTML = `
       <div class="library-detail-header">
@@ -50,6 +58,7 @@ export function createLibraryController(opts: {
             card.special ? ' · special' : ''
           }</p>
           <p class="stat-line">${escapeHtml(formatStats(card))}</p>
+          ${keywordHtml}
         </div>
       </div>
       <h3>Ability</h3>

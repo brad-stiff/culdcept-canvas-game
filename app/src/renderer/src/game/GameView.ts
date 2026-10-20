@@ -1,6 +1,6 @@
 import { runAiUntilHuman } from '../../../shared/game/ai'
 import { totalMagic } from '../../../shared/game/economy'
-import { colosseumLayoutPositions } from '../../../shared/game/maps/colosseum'
+import { loopLayoutPositions } from '../../../shared/game/maps/layout'
 import { PLAYER_COLORS } from '../../../shared/game/playerColors'
 import {
   canRoll,
@@ -226,7 +226,7 @@ function computeLayout(w: number, h: number, squareCount: number): Layout {
   return {
     width: w,
     height: h,
-    squarePositions: colosseumLayoutPositions(squareCount, cx, cy, radiusX, radiusY)
+    squarePositions: loopLayoutPositions(squareCount, cx, cy, radiusX, radiusY)
   }
 }
 

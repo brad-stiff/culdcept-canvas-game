@@ -294,9 +294,33 @@ body {
   margin-bottom: 8px;
 }
 
+.lobby-map-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.lobby-map-row label {
+  font-size: 0.85rem;
+  font-weight: 650;
+  color: rgba(232, 234, 237, 0.75);
+}
+
+.lobby-map-row select {
+  min-width: 220px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #12151c;
+  color: #e8eaed;
+  font-size: 0.9rem;
+}
+
 .lobby-seat {
   display: grid;
-  grid-template-columns: 72px 1fr 1fr;
+  grid-template-columns: 72px minmax(90px, 0.8fr) 1fr minmax(100px, 0.9fr);
   gap: 10px;
   align-items: center;
   padding: 12px;
@@ -453,12 +477,94 @@ body {
   color: rgba(232, 234, 237, 0.5);
 }
 
+.deck-toolbar {
+  margin-bottom: 10px;
+}
+
+.deck-toolbar input[type='text'] {
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #12151c;
+  color: #e8eaed;
+}
+
+.deck-layout {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 14px;
+  min-height: 0;
+  flex: 1;
+}
+
+.deck-pane {
+  min-height: 280px;
+  max-height: 420px;
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(12, 16, 22, 0.55);
+  padding: 10px;
+}
+
+.deck-catalog-list,
+.deck-book-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.deck-catalog-list button,
+.deck-book-list button {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #e8eaed;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.deck-catalog-list button span {
+  display: block;
+  font-size: 0.75rem;
+  color: rgba(232, 234, 237, 0.55);
+}
+
+.deck-catalog-list button:hover,
+.deck-book-list button:hover {
+  background: #1a2030;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.library-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+
+.library-keywords span {
+  font-size: 0.7rem;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 170, 255, 0.35);
+  color: rgba(180, 210, 255, 0.9);
+}
+
 @media (max-width: 720px) {
   .lobby-seat {
     grid-template-columns: 1fr;
   }
 
-  .library-layout {
+  .library-layout,
+  .deck-layout {
     grid-template-columns: 1fr;
   }
 }

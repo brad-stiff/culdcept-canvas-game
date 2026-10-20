@@ -4,11 +4,18 @@ import type { GameAction, GameState, MatchSeat } from '../../../shared/game/type
 import type { LanClientMessage, LanHostMessage } from '../../../shared/lan/protocol'
 import { filledSeats, type FreeBattleLobbyConfig } from '../../../shared/lobby/types'
 
-function seatsFromLobby(lobby: FreeBattleLobbyConfig): MatchSeat[] {
-  return filledSeats(lobby).map((s) => ({
-    name: s.name,
-    isAi: s.kind === 'ai'
-  }))
+function seatsFromLobby(
+  lobby: FreeBattleLobbyConfig,
+  resolveBook?: (bookId: string) => string[] | null
+): MatchSeat[] {
+  return filledSeats(lobby).map((s) => {
+    const catalogIds = resolveBook?.(s.bookId ?? 'starter') ?? null
+    return {
+      name: s.name,
+      isAi: s.kind === 'ai',
+      ...(catalogIds ? { bookCatalogIds: catalogIds } : {})
+    }
+  })
 }
 
 function playerIdForClient(lobby: FreeBattleLobbyConfig, clientId: string): number | null {
@@ -31,6 +38,7 @@ export type HostSession = {
 export async function createHostSession(opts: {
   lobby: FreeBattleLobbyConfig
   hostClientId: string
+  resolveBook?: (bookId: string) => string[] | null
   onLobbyChange: (lobby: FreeBattleLobbyConfig) => void
   onState: (state: GameState) => void
   onStatus: (text: string) => void
@@ -154,8 +162,8 @@ export async function createHostSession(opts: {
     },
     broadcastLobby,
     startMatch() {
-      const seats = seatsFromLobby(lobby)
-      let next = startMatch(seats)
+      const seats = seatsFromLobby(lobby, opts.resolveBook)
+      let next = startMatch(seats, { mapId: lobby.mapId || 'colosseum-i' })
       next = runAiUntilHuman(next)
       for (const seat of filledSeats(lobby)) {
         if (seat.kind !== 'human' || !seat.clientId) continue
