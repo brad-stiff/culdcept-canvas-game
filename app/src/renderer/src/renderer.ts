@@ -1,5 +1,6 @@
 import '../assets/shell.css'
 import { backingSizeForCssBox } from '../../shared/canvasLayout'
+import type { MatchSeat } from '../../shared/game/types'
 import { filledSeats, type FreeBattleLobbyConfig } from '../../shared/lobby/types'
 import { GameView } from './game/GameView'
 import { createLibraryController } from './ui/library'
@@ -15,7 +16,7 @@ type StoredAccount = {
 
 const MAIN_ACTIONS: { id: string; title: string; subtitle: string }[] = [
   { id: 'story', title: 'Story', subtitle: 'Campaign (stub — out of v1 scope)' },
-  { id: 'free', title: 'Free Battle', subtitle: 'Local lobby · LAN later' },
+  { id: 'free', title: 'Free Battle', subtitle: 'Colosseum · human or AI' },
   { id: 'library', title: 'Card library', subtitle: 'Browse Saga catalog' },
   { id: 'deck', title: 'Deck builder', subtitle: 'Compose decks (stub)' },
   { id: 'card', title: 'Card builder', subtitle: 'Author cards (stub)' },
@@ -58,7 +59,7 @@ function drawIdleCanvas(ctx: CanvasRenderingContext2D, w: number, h: number): vo
   ctx.font = `${Math.round(Math.min(w, h) * 0.035)}px system-ui, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText('Choose Free Battle from the main menu', w / 2, h / 2)
+  ctx.fillText('Choose Free Battle — Colosseum', w / 2, h / 2)
   ctx.restore()
 }
 
@@ -76,13 +77,16 @@ function startFreeBattle(
   }
 
   const seats = filledSeats(config)
-  const names: [string, string] = [seats[0].name, seats[1].name]
-  activeGame = new GameView(canvas, shell, names, onEnd)
+  const matchSeats: [MatchSeat, MatchSeat] = [
+    { name: seats[0].name, isAi: seats[0].kind === 'ai' },
+    { name: seats[1].name, isAi: seats[1].kind === 'ai' }
+  ]
+  activeGame = new GameView(canvas, shell, matchSeats, onEnd)
 
   menuLayer.classList.add('menu-layer-dismissed')
   stubNote.textContent = ''
   const kinds = seats.map((s) => s.kind).join(' / ')
-  hudStatus.textContent = `Free Battle — ${names[0]} vs ${names[1]} (${kinds})`
+  hudStatus.textContent = `Colosseum — ${matchSeats[0].name} vs ${matchSeats[1].name} (${kinds})`
   layoutCanvas(canvas, shell)
 }
 

@@ -11,3 +11,6 @@ app/src/renderer/public/assets/cards/*
 !app/src/renderer/public/assets/cards/download-manifest.json
 app/src/renderer/public/assets/tiles/*
 !app/src/renderer/public/assets/tiles/README.md
+app/src/renderer/public/assets/maps/*
+!app/src/renderer/public/assets/maps/.gitkeep
+app/data/sources/colosseum*.jpg

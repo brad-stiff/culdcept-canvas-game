@@ -1,103 +1,120 @@
 import { crossedStart } from './board'
-import {
-  computeAttackPower,
-  computeDefensePower,
-  elementAdvantageBonus,
-  resolveBattle
-} from './combat'
-import { createInitialState, reduceGame } from './state'
+import { resolveBattle } from './combat'
+import { totalMagic } from './economy'
+import { COLOSSEUM_BOARD, COLOSSEUM_CONFIG } from './maps/colosseum'
+import { reduceGame, startMatch } from './state'
+import type { MatchCard } from './types'
 
-describe('createInitialState', () => {
-  it('starts both players on the castle with starter hands', () => {
-    const state = createInitialState(['Alice', 'Bob'])
-    expect(state.players[0].name).toBe('Alice')
-    expect(state.players[1].name).toBe('Bob')
-    expect(state.players[0].position).toBe(0)
-    expect(state.players[1].position).toBe(0)
-    expect(state.players[0].hand).toHaveLength(5)
+describe('Colosseum map', () => {
+  it('matches Central Colosseum I land counts', () => {
+    expect(COLOSSEUM_BOARD).toHaveLength(20)
+    expect(COLOSSEUM_CONFIG.targetMagic).toBe(5000)
+    expect(COLOSSEUM_CONFIG.maxDie).toBe(6)
+    const lands = COLOSSEUM_BOARD.filter((s) => s.squareType === 'land')
+    expect(lands.filter((s) => s.terrain === 'fire')).toHaveLength(4)
+    expect(lands.filter((s) => s.terrain === 'water')).toHaveLength(4)
+    expect(lands.filter((s) => s.terrain === 'earth')).toHaveLength(4)
+    expect(lands.filter((s) => s.terrain === 'air')).toHaveLength(4)
+    expect(COLOSSEUM_BOARD.filter((s) => s.squareType === 'shrine')).toHaveLength(1)
+    expect(COLOSSEUM_BOARD.filter((s) => s.squareType === 'fort')).toHaveLength(2)
+  })
+})
+
+describe('startMatch', () => {
+  it('starts on roll with books and opening hands', () => {
+    const state = startMatch([
+      { name: 'Alice', isAi: false },
+      { name: 'Bob', isAi: true }
+    ])
     expect(state.phase).toBe('roll')
+    expect(state.players[0].hand.length).toBeGreaterThanOrEqual(4)
+    expect(state.players[0].book.length).toBeGreaterThan(0)
+    expect(state.players[1].isAi).toBe(true)
+    expect(state.config.mapId).toBe('colosseum-i')
   })
 })
 
 describe('crossedStart', () => {
   it('detects a lap around the board', () => {
-    expect(crossedStart(7, 1)).toBe(true)
+    expect(crossedStart(19, 1)).toBe(true)
     expect(crossedStart(0, 3)).toBe(false)
   })
 })
 
 describe('reduceGame movement', () => {
-  it('awards pass-castle gold when movement crosses the start square', () => {
-    const state = createInitialState(['Alice', 'Bob'])
+  it('awards lap magic when movement crosses the castle', () => {
+    const state = startMatch(['Alice', 'Bob'])
+    const before = state.players[0].magic
     const rolled = reduceGame(
       {
         ...state,
-        players: [{ ...state.players[0], position: 7 }, state.players[1]],
+        players: [{ ...state.players[0], position: 19 }, state.players[1]],
         phase: 'roll'
       },
       { type: 'roll_dice' }
     )
-    expect(rolled.players[0].gold).toBe(state.config.startGold + state.config.passCastleGold)
+    expect(rolled.players[0].magic).toBeGreaterThanOrEqual(before)
+    if (rolled.players[0].position < 19) {
+      expect(rolled.players[0].magic).toBe(before + state.config.lapMagic)
+    }
   })
 })
 
 describe('reduceGame territory', () => {
   it('places a creature on an empty land square', () => {
-    let state = createInitialState(['Alice', 'Bob'])
+    let state = startMatch(['Alice', 'Bob'])
+    const creature = state.players[0].hand.find((c) => c.kind === 'creature')
+    expect(creature).toBeTruthy()
     state = {
       ...state,
-      players: [{ ...state.players[0], position: 1, gold: 1000 }, state.players[1]],
+      players: [
+        { ...state.players[0], position: 1, magic: 1000 },
+        state.players[1]
+      ],
       phase: 'landed',
       selectedSquareId: 1
     }
 
-    const cardId = state.players[0].hand[0].id
     state = reduceGame(state, { type: 'choose_action', action: 'place' })
-    state = reduceGame(state, { type: 'select_creature', cardId })
+    state = reduceGame(state, { type: 'select_creature', cardId: creature!.instanceId })
 
     expect(state.territories).toHaveLength(1)
     expect(state.territories[0].squareId).toBe(1)
     expect(state.territories[0].ownerId).toBe(0)
-    expect(state.currentPlayerIndex).toBe(1)
+    expect(state.territories[0].level).toBe(1)
   })
 })
 
 describe('resolveBattle', () => {
-  it('favors higher attack over defense on neutral terrain', () => {
-    const outcome = resolveBattle(
-      { id: 'a', name: 'Brute', cost: 0, attack: 100, defense: 10, element: 'neutral' },
-      { id: 'b', name: 'Wall', cost: 0, attack: 10, defense: 50, element: 'neutral' },
-      { id: 1, name: 'Plain', terrain: 'neutral', squareType: 'land', tollBase: 50 }
-    )
-    expect(outcome.attackerWins).toBe(true)
+  const creature = (partial: Partial<MatchCard> & Pick<MatchCard, 'name' | 'st' | 'hp'>): MatchCard => ({
+    instanceId: partial.name,
+    catalogId: partial.name,
+    kind: 'creature',
+    element: 'neutral',
+    mhp: partial.hp,
+    cost: 0,
+    abilityText: '',
+    keywords: [],
+    itemBonusSt: 0,
+    itemBonusHp: 0,
+    ...partial
   })
 
-  it('applies terrain and element bonuses', () => {
-    const atk = computeAttackPower(
-      { id: 'a', name: 'Salamander', cost: 0, attack: 50, defense: 0, element: 'fire' },
-      { id: 1, name: 'Ember', terrain: 'fire', squareType: 'land', tollBase: 50 }
-    )
-    const def = computeDefensePower(
-      { id: 'b', name: 'Golem', cost: 0, attack: 0, defense: 50, element: 'earth' },
-      { id: 1, name: 'Ember', terrain: 'fire', squareType: 'land', tollBase: 50 }
-    )
-    expect(atk).toBe(80)
-    expect(def).toBe(50)
-    expect(elementAdvantageBonus('fire', 'earth')).toBe(25)
+  it('lets a stronger attacker win with attacks first', () => {
+    const outcome = resolveBattle({
+      attacker: creature({ name: 'Brute', st: 50, hp: 40, keywords: ['attacks_first'] }),
+      defender: creature({ name: 'Wall', st: 10, hp: 30 }),
+      item: null,
+      square: COLOSSEUM_BOARD[1],
+      landLevel: 1
+    })
+    expect(outcome.attackerWins).toBe(true)
   })
 })
 
-describe('win condition', () => {
-  it('ends the game when a player reaches target gold', () => {
-    let state = createInitialState(['Alice', 'Bob'])
-    state = {
-      ...state,
-      players: [{ ...state.players[0], gold: 2500 }, state.players[1]],
-      phase: 'landed',
-      selectedSquareId: 0
-    }
-    state = reduceGame(state, { type: 'choose_action', action: 'skip' })
-    expect(state.phase).toBe('game_over')
-    expect(state.winnerId).toBe(0)
+describe('totalMagic', () => {
+  it('counts liquid magic toward the goal', () => {
+    const state = startMatch(['Alice', 'Bob'])
+    expect(totalMagic(state, state.players[0])).toBe(state.players[0].magic)
   })
 })

@@ -1,54 +1,104 @@
-export type Element = 'neutral' | 'fire' | 'water' | 'earth' | 'air'
+import type { SagaCardElement, SagaCardKind } from '../cards/types'
 
-export type SquareType = 'castle' | 'land'
+export type Element = Exclude<SagaCardElement, 'dual' | null> | 'dual'
+
+export type SquareType = 'castle' | 'fort' | 'shrine' | 'land'
 
 export type Square = {
   id: number
   name: string
   terrain: Element
   squareType: SquareType
-  tollBase: number
+  /** Display / base land value used in toll math (Colosseum lands use 100). */
+  landValue: number
 }
 
-export type CreatureCard = {
-  id: string
+export type Keyword = 'attacks_first' | 'item_st' | 'item_hp'
+
+export type MatchCard = {
+  instanceId: string
+  catalogId: string
   name: string
+  kind: SagaCardKind
+  element: SagaCardElement
+  st: number
+  hp: number
+  mhp: number
   cost: number
-  attack: number
-  defense: number
-  element: Element
+  abilityText: string
+  /** Parsed Phase-1 keywords only. */
+  keywords: Keyword[]
+  /** Item bonus magnitudes when keywords include item_st / item_hp. */
+  itemBonusSt: number
+  itemBonusHp: number
 }
 
 export type Territory = {
   squareId: number
   ownerId: number
-  creature: CreatureCard
+  creature: MatchCard
+  level: number
+}
+
+export type SymbolCounts = {
+  fire: number
+  water: number
+  earth: number
+  air: number
+  neutral: number
 }
 
 export type Player = {
   id: number
   name: string
   color: string
-  gold: number
+  /** Liquid magic (G). */
+  magic: number
   position: number
-  hand: CreatureCard[]
+  hand: MatchCard[]
+  book: MatchCard[]
+  discard: MatchCard[]
+  isAi: boolean
 }
 
-export type GamePhase = 'roll' | 'landed' | 'select_creature' | 'battle_result' | 'game_over'
+export type GamePhase =
+  | 'upkeep'
+  | 'roll'
+  | 'landed'
+  | 'select_creature'
+  | 'select_item'
+  | 'select_spell'
+  | 'territory_menu'
+  | 'battle_result'
+  | 'game_over'
 
-export type LandedAction = 'place' | 'battle' | 'pay_toll' | 'skip'
+export type LandedAction =
+  | 'place'
+  | 'battle'
+  | 'pay_toll'
+  | 'level_up'
+  | 'cast_spell'
+  | 'shrine'
+  | 'skip'
 
 export type BattleOutcome = {
   attackerWins: boolean
-  attackPower: number
-  defensePower: number
+  attackerRemainingHp: number
+  defenderRemainingHp: number
   message: string
 }
 
 export type GameConfig = {
-  targetGold: number
-  startGold: number
-  passCastleGold: number
+  mapId: string
+  mapName: string
+  targetMagic: number
+  startMagic: number
+  lapMagic: number
+  fortMagic: number
+  maxDie: number
+  handLimit: number
+  maxLandLevel: number
+  symbolValue: number
   board: Square[]
 }
 
@@ -64,11 +114,21 @@ export type GameState = {
   selectedSquareId: number | null
   lastBattle: BattleOutcome | null
   winnerId: number | null
+  /** Creature chosen for invasion before optional item. */
+  pendingAttackerId: string | null
 }
 
 export type GameAction =
+  | { type: 'begin_upkeep' }
   | { type: 'roll_dice' }
   | { type: 'choose_action'; action: LandedAction }
   | { type: 'select_creature'; cardId: string }
+  | { type: 'select_item'; cardId: string | null }
+  | { type: 'select_spell'; cardId: string }
   | { type: 'acknowledge_battle' }
   | { type: 'end_turn' }
+
+export type MatchSeat = {
+  name: string
+  isAi: boolean
+}
