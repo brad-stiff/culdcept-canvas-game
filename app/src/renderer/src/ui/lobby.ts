@@ -1,8 +1,11 @@
+import { LAN_DEFAULT_PORT } from '../../../shared/lan/protocol'
 import {
   canStartFreeBattle,
+  canStartLanHost,
   defaultLobbyConfig,
   filledSeats,
   type FreeBattleLobbyConfig,
+  type PlayMode,
   type SeatKind
 } from '../../../shared/lobby/types'
 
@@ -10,6 +13,21 @@ export type LobbyController = {
   show: (localPlayerName: string) => void
   hide: () => void
   getConfig: () => FreeBattleLobbyConfig
+  getMode: () => PlayMode
+  setStatus: (text: string, isError?: boolean) => void
+  setLanInfo: (text: string) => void
+  applyRemoteLobby: (lobby: FreeBattleLobbyConfig) => void
+  getClientId: () => string
+}
+
+function ensureClientId(): string {
+  const key = 'culdcept_lan_client_id'
+  let id = localStorage.getItem(key)
+  if (!id) {
+    id = crypto.randomUUID()
+    localStorage.setItem(key, id)
+  }
+  return id
 }
 
 export function createLobbyController(opts: {
@@ -18,10 +36,35 @@ export function createLobbyController(opts: {
   hintEl: HTMLParagraphElement
   startBtn: HTMLButtonElement
   backBtn: HTMLButtonElement
+  modeRowEl: HTMLElement
+  lanPanelEl: HTMLElement
   onBack: () => void
-  onStart: (config: FreeBattleLobbyConfig) => void
+  onStartLocal: (config: FreeBattleLobbyConfig) => void
+  onHostReady: (config: FreeBattleLobbyConfig, clientId: string) => Promise<void>
+  onHostStartMatch: (config: FreeBattleLobbyConfig, clientId: string) => void
+  onJoin: (host: string, port: number, name: string, clientId: string) => Promise<void>
+  onStopLan: () => void
 }): LobbyController {
   let config = defaultLobbyConfig('Player')
+  let mode: PlayMode = 'local'
+  let localPlayerName = 'Player'
+  const clientId = ensureClientId()
+  let hosting = false
+
+  const joinHostInput = document.createElement('input')
+  joinHostInput.type = 'text'
+  joinHostInput.placeholder = 'Host IP'
+  joinHostInput.id = 'lan-join-host'
+  const joinPortInput = document.createElement('input')
+  joinPortInput.type = 'number'
+  joinPortInput.value = String(LAN_DEFAULT_PORT)
+  joinPortInput.id = 'lan-join-port'
+  const joinBtn = document.createElement('button')
+  joinBtn.type = 'button'
+  joinBtn.textContent = 'Connect'
+  const lanInfo = document.createElement('p')
+  lanInfo.className = 'menu-hint'
+  lanInfo.id = 'lan-info'
 
   function setHint(text: string, isError: boolean): void {
     opts.hintEl.textContent = text
@@ -29,20 +72,97 @@ export function createLobbyController(opts: {
   }
 
   function syncStartEnabled(): void {
+    if (mode === 'join') {
+      opts.startBtn.disabled = true
+      opts.startBtn.textContent = 'Waiting for host…'
+      return
+    }
+    if (mode === 'host') {
+      const ok = canStartLanHost(config, clientId)
+      opts.startBtn.disabled = !ok || !hosting
+      opts.startBtn.textContent = 'Start match'
+      if (!hosting) setHint('Click “Open LAN” first, then wait for players.', false)
+      else if (!ok) setHint('Need 2–4 filled seats; each Human seat must be claimed.', false)
+      else setHint(`Ready — ${filledSeats(config).length} cepters.`, false)
+      return
+    }
     const ok = canStartFreeBattle(config)
     opts.startBtn.disabled = !ok
-    if (!ok) {
-      setHint('Fill exactly two seats (Human or AI). Extra seats stay Open.', false)
-    } else {
-      const names = filledSeats(config)
-        .map((s) => s.name)
-        .join(' vs ')
-      setHint(`Ready: ${names}`, false)
+    opts.startBtn.textContent = 'Start match'
+    if (!ok) setHint('Fill 2–4 seats (Human or AI).', false)
+    else setHint(`Ready: ${filledSeats(config).map((s) => s.name).join(', ')}`, false)
+  }
+
+  function renderModes(): void {
+    opts.modeRowEl.innerHTML = ''
+    for (const [id, label] of [
+      ['local', 'Local / hotseat'],
+      ['host', 'Host LAN'],
+      ['join', 'Join LAN']
+    ] as const) {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = mode === id ? 'btn-mode is-active' : 'btn-mode'
+      btn.textContent = label
+      btn.addEventListener('click', () => {
+        if (mode !== id) {
+          opts.onStopLan()
+          hosting = false
+        }
+        mode = id
+        renderModes()
+        renderLanPanel()
+        renderSeats()
+      })
+      opts.modeRowEl.appendChild(btn)
+    }
+  }
+
+  function renderLanPanel(): void {
+    opts.lanPanelEl.innerHTML = ''
+    opts.lanPanelEl.hidden = mode === 'local'
+    if (mode === 'host') {
+      const openBtn = document.createElement('button')
+      openBtn.type = 'button'
+      openBtn.textContent = hosting ? 'LAN open' : 'Open LAN'
+      openBtn.disabled = hosting
+      openBtn.addEventListener('click', async () => {
+        try {
+          await opts.onHostReady(config, clientId)
+          hosting = true
+          renderLanPanel()
+          syncStartEnabled()
+        } catch (err) {
+          setHint(err instanceof Error ? err.message : 'Failed to host', true)
+        }
+      })
+      opts.lanPanelEl.append(openBtn, lanInfo)
+    }
+    if (mode === 'join') {
+      const row = document.createElement('div')
+      row.className = 'menu-row'
+      row.append(joinHostInput, joinPortInput, joinBtn)
+      joinBtn.onclick = async () => {
+        const host = joinHostInput.value.trim()
+        const port = Number(joinPortInput.value) || LAN_DEFAULT_PORT
+        if (!host) {
+          setHint('Enter host IP.', true)
+          return
+        }
+        try {
+          await opts.onJoin(host, port, localPlayerName, clientId)
+          setHint(`Connected to ${host}:${port}`, false)
+        } catch (err) {
+          setHint(err instanceof Error ? err.message : 'Join failed', true)
+        }
+      }
+      opts.lanPanelEl.append(row, lanInfo)
     }
   }
 
   function renderSeats(): void {
     opts.seatsEl.innerHTML = ''
+    const locked = mode === 'join'
     for (const seat of config.seats) {
       const row = document.createElement('div')
       row.className = 'lobby-seat'
@@ -50,10 +170,16 @@ export function createLobbyController(opts: {
 
       const label = document.createElement('div')
       label.className = 'lobby-seat-label'
-      label.textContent = `Seat ${seat.index + 1}`
+      const claim =
+        seat.kind === 'human' && seat.clientId
+          ? seat.clientId === clientId
+            ? ' (you)'
+            : ' (remote)'
+          : ''
+      label.textContent = `Seat ${seat.index + 1}${claim}`
 
       const kindSelect = document.createElement('select')
-      kindSelect.setAttribute('aria-label', `Seat ${seat.index + 1} type`)
+      kindSelect.disabled = locked
       for (const [value, text] of [
         ['human', 'Human'],
         ['ai', 'AI'],
@@ -69,14 +195,13 @@ export function createLobbyController(opts: {
       const nameInput = document.createElement('input')
       nameInput.type = 'text'
       nameInput.maxLength = 24
-      nameInput.placeholder = seat.kind === 'ai' ? 'AI name' : 'Player name'
       nameInput.value = seat.name
-      nameInput.disabled = seat.kind === 'open'
-      nameInput.setAttribute('aria-label', `Seat ${seat.index + 1} name`)
+      nameInput.disabled = locked || seat.kind === 'open'
 
       kindSelect.addEventListener('change', () => {
         const kind = kindSelect.value as SeatKind
         seat.kind = kind
+        seat.clientId = kind === 'human' && seat.index === 0 ? clientId : null
         if (kind === 'open') {
           seat.name = ''
           nameInput.value = ''
@@ -87,18 +212,25 @@ export function createLobbyController(opts: {
             seat.name = `AI ${seat.index + 1}`
             nameInput.value = seat.name
           }
+          seat.clientId = null
         } else {
           nameInput.disabled = false
           if (!seat.name) {
-            seat.name = 'Player'
+            seat.name = seat.index === 0 ? localPlayerName : `Player ${seat.index + 1}`
             nameInput.value = seat.name
           }
+          if (seat.index === 0) seat.clientId = clientId
         }
         syncStartEnabled()
+        if (mode === 'host' && hosting) {
+          void opts.onHostReady(config, clientId)
+        }
       })
 
       nameInput.addEventListener('input', () => {
-        seat.name = nameInput.value.trim() || (seat.kind === 'ai' ? `AI ${seat.index + 1}` : 'Player')
+        seat.name =
+          nameInput.value.trim() ||
+          (seat.kind === 'ai' ? `AI ${seat.index + 1}` : `Player ${seat.index + 1}`)
         syncStartEnabled()
       })
 
@@ -108,30 +240,58 @@ export function createLobbyController(opts: {
     syncStartEnabled()
   }
 
-  opts.backBtn.addEventListener('click', () => opts.onBack())
+  opts.backBtn.addEventListener('click', () => {
+    opts.onStopLan()
+    hosting = false
+    opts.onBack()
+  })
+
   opts.startBtn.addEventListener('click', () => {
-    if (!canStartFreeBattle(config)) {
-      setHint('Need exactly two filled seats to start.', true)
-      return
-    }
-    for (const seat of filledSeats(config)) {
-      if (!seat.name.trim()) {
-        setHint('Every filled seat needs a name.', true)
+    if (mode === 'local') {
+      if (!canStartFreeBattle(config)) {
+        setHint('Need 2–4 filled named seats.', true)
         return
       }
+      opts.onStartLocal(config)
+      return
     }
-    opts.onStart(config)
+    if (mode === 'host') {
+      if (!canStartLanHost(config, clientId)) {
+        setHint('LAN seats not ready.', true)
+        return
+      }
+      opts.onHostStartMatch(config, clientId)
+    }
   })
 
   return {
-    show(localPlayerName: string) {
-      config = defaultLobbyConfig(localPlayerName)
+    show(name: string) {
+      localPlayerName = name
+      config = defaultLobbyConfig(name)
+      config.seats[0].clientId = clientId
+      mode = 'local'
+      hosting = false
       opts.root.hidden = false
+      lanInfo.textContent = ''
+      renderModes()
+      renderLanPanel()
       renderSeats()
     },
     hide() {
       opts.root.hidden = true
     },
-    getConfig: () => config
+    getConfig: () => config,
+    getMode: () => mode,
+    setStatus(text, isError = false) {
+      setHint(text, isError)
+    },
+    setLanInfo(text: string) {
+      lanInfo.textContent = text
+    },
+    applyRemoteLobby(lobby: FreeBattleLobbyConfig) {
+      config = lobby
+      renderSeats()
+    },
+    getClientId: () => clientId
   }
 }

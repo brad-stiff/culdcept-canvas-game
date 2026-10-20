@@ -1,6 +1,7 @@
 import { runAiUntilHuman } from '../../../shared/game/ai'
 import { totalMagic } from '../../../shared/game/economy'
 import { colosseumLayoutPositions } from '../../../shared/game/maps/colosseum'
+import { PLAYER_COLORS } from '../../../shared/game/playerColors'
 import {
   canRoll,
   getAvailableActions,
@@ -9,7 +10,7 @@ import {
   reduceGame,
   startMatch
 } from '../../../shared/game/state'
-import type { GameState, LandedAction, MatchSeat } from '../../../shared/game/types'
+import type { GameAction, GameState, LandedAction, MatchSeat } from '../../../shared/game/types'
 
 type Layout = {
   width: number
@@ -17,7 +18,16 @@ type Layout = {
   squarePositions: { x: number; y: number }[]
 }
 
-const PLAYER_COLORS = ['#5b9fd4', '#d45b7a']
+export type GameViewOptions = {
+  seats?: MatchSeat[]
+  /** When set, only this player may act locally (LAN client / host seat). */
+  localPlayerId?: number | null
+  /** Host-authoritative remote: push actions outward instead of reducing locally. */
+  onLocalAction?: (action: GameAction) => void
+  /** If false, do not run local AI (LAN clients). Default true. */
+  runAi?: boolean
+  initialState?: GameState
+}
 
 export class GameView {
   private state: GameState
@@ -26,19 +36,38 @@ export class GameView {
   private boundClick: (e: MouseEvent) => void
   private boundKey: (e: KeyboardEvent) => void
   private aiTimer: number | null = null
+  private localPlayerId: number | null
+  private onLocalAction: ((action: GameAction) => void) | null
+  private runAiFlag: boolean
 
   constructor(
     private canvas: HTMLCanvasElement,
     private shell: HTMLElement,
-    seats: [MatchSeat, MatchSeat],
+    options: GameViewOptions | MatchSeat[],
     onExit: () => void
   ) {
-    this.state = startMatch(seats)
+    const opts: GameViewOptions = Array.isArray(options) ? { seats: options } : options
+    this.state = opts.initialState ?? startMatch(opts.seats ?? [])
+    this.localPlayerId = opts.localPlayerId === undefined ? null : opts.localPlayerId
+    this.onLocalAction = opts.onLocalAction ?? null
+    this.runAiFlag = opts.runAi !== false
     this.onExit = onExit
     this.boundClick = (e) => this.handleClick(e)
     this.boundKey = (e) => this.handleKey(e)
     this.canvas.addEventListener('click', this.boundClick)
     window.addEventListener('keydown', this.boundKey)
+    this.queueAi()
+  }
+
+  getState(): GameState {
+    return this.state
+  }
+
+  /** Apply authoritative state from LAN host. */
+  setState(state: GameState): void {
+    this.state = state
+    const rect = this.shell.getBoundingClientRect()
+    this.draw(rect.width, rect.height)
     this.queueAi()
   }
 
@@ -53,18 +82,32 @@ export class GameView {
     this.draw(cssWidth, cssHeight)
   }
 
-  private dispatch(action: Parameters<typeof reduceGame>[1]): void {
+  private canControlCurrent(): boolean {
+    const player = this.state.players[this.state.currentPlayerIndex]
+    if (!player || player.isAi) return false
+    if (this.localPlayerId == null) return true
+    return player.id === this.localPlayerId
+  }
+
+  private dispatch(action: GameAction): void {
+    if (this.onLocalAction) {
+      this.onLocalAction(action)
+      return
+    }
     this.state = reduceGame(this.state, action)
-    this.state = runAiUntilHuman(this.state)
+    if (this.runAiFlag) {
+      this.state = runAiUntilHuman(this.state)
+    }
     const rect = this.shell.getBoundingClientRect()
     this.draw(rect.width, rect.height)
     this.queueAi()
   }
 
   private queueAi(): void {
+    if (!this.runAiFlag || this.onLocalAction) return
     if (this.aiTimer !== null) window.clearTimeout(this.aiTimer)
     const player = this.state.players[this.state.currentPlayerIndex]
-    if (!player.isAi || this.state.phase === 'game_over') return
+    if (!player?.isAi || this.state.phase === 'game_over') return
     this.aiTimer = window.setTimeout(() => {
       this.state = runAiUntilHuman(this.state)
       const rect = this.shell.getBoundingClientRect()
@@ -78,14 +121,14 @@ export class GameView {
       this.onExit()
       return
     }
-    if (this.state.players[this.state.currentPlayerIndex].isAi) return
+    if (!this.canControlCurrent()) return
     if (e.key === 'r' || e.key === 'R') {
       if (canRoll(this.state)) this.dispatch({ type: 'roll_dice' })
     }
   }
 
   private handleClick(e: MouseEvent): void {
-    if (this.state.players[this.state.currentPlayerIndex].isAi) return
+    if (!this.canControlCurrent()) return
 
     const rect = this.canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
@@ -267,27 +310,23 @@ function drawBoard(ctx: CanvasRenderingContext2D, state: GameState, layout: Layo
 }
 
 function drawHud(ctx: CanvasRenderingContext2D, state: GameState, w: number): void {
+  const panelH = 20 + state.players.length * 18
   ctx.fillStyle = 'rgba(12,16,22,0.88)'
-  roundRect(ctx, 12, 12, w - 24, 78, 10)
+  roundRect(ctx, 12, 12, w - 24, Math.max(78, panelH + 36), 10)
   ctx.fill()
 
-  const p0 = state.players[0]
-  const p1 = state.players[1]
-  ctx.font = '13px system-ui,sans-serif'
+  ctx.font = '12px system-ui,sans-serif'
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
-  ctx.fillStyle = p0.color
-  ctx.fillText(
-    `${p0.name}${p0.isAi ? ' (AI)' : ''}: ${p0.magic}G · total ${totalMagic(state, p0)}G`,
-    24,
-    22
-  )
-  ctx.fillStyle = p1.color
-  ctx.fillText(
-    `${p1.name}${p1.isAi ? ' (AI)' : ''}: ${p1.magic}G · total ${totalMagic(state, p1)}G`,
-    24,
-    42
-  )
+  state.players.forEach((p, i) => {
+    ctx.fillStyle = p.color || PLAYER_COLORS[i] || '#ccc'
+    const turn = i === state.currentPlayerIndex ? ' ›' : ''
+    ctx.fillText(
+      `${p.name}${p.isAi ? ' (AI)' : ''}: ${p.magic}G · ${totalMagic(state, p)}G${turn}`,
+      24,
+      22 + i * 18
+    )
+  })
 
   ctx.fillStyle = '#e8eaed'
   ctx.textAlign = 'center'
@@ -295,7 +334,7 @@ function drawHud(ctx: CanvasRenderingContext2D, state: GameState, w: number): vo
   ctx.fillText(`${state.config.mapName} — ${getPhaseLabel(state)}`, w / 2, 24)
   ctx.fillStyle = 'rgba(255,255,255,0.55)'
   ctx.font = '12px system-ui,sans-serif'
-  ctx.fillText(`Goal ${state.config.targetMagic}G`, w / 2, 46)
+  ctx.fillText(`Goal ${state.config.targetMagic}G · ${state.players.length}p`, w / 2, 46)
   if (state.lastRoll !== null && state.phase !== 'roll') {
     ctx.fillText(`Last roll: ${state.lastRoll}`, w / 2, 62)
   }
@@ -350,7 +389,8 @@ function drawActionBar(
   h: number
 ): void {
   const y = h - 52
-  if (state.players[state.currentPlayerIndex].isAi) {
+  const current = state.players[state.currentPlayerIndex]
+  if (current?.isAi) {
     ctx.fillStyle = 'rgba(255,255,255,0.6)'
     ctx.font = '13px system-ui,sans-serif'
     ctx.textAlign = 'center'

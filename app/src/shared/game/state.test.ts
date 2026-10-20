@@ -32,6 +32,17 @@ describe('startMatch', () => {
     expect(state.players[1].isAi).toBe(true)
     expect(state.config.mapId).toBe('colosseum-i')
   })
+
+  it('supports up to four cepters', () => {
+    const state = startMatch([
+      { name: 'A', isAi: false },
+      { name: 'B', isAi: false },
+      { name: 'C', isAi: true },
+      { name: 'D', isAi: true }
+    ])
+    expect(state.players).toHaveLength(4)
+    expect(state.players.map((p) => p.id)).toEqual([0, 1, 2, 3])
+  })
 })
 
 describe('crossedStart', () => {

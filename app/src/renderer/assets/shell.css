@@ -258,6 +258,36 @@ body {
   flex-direction: column;
 }
 
+.lobby-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.btn-mode {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #1a2030;
+  color: #e8eaed;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.btn-mode.is-active {
+  border-color: rgba(120, 170, 255, 0.55);
+  background: #243044;
+}
+
+.lobby-lan-panel {
+  margin-bottom: 12px;
+}
+
+.lobby-lan-panel .menu-row {
+  margin-bottom: 8px;
+}
+
 .lobby-seats {
   display: grid;
   gap: 10px;

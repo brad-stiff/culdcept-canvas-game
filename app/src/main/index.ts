@@ -1,6 +1,7 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { registerLanIpc, stopLanHost, disconnectLanClient } from './lanTransport'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -34,6 +35,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.culdcept.canvas')
+  registerLanIpc()
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -47,6 +49,8 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  stopLanHost()
+  disconnectLanClient()
   if (process.platform !== 'darwin') {
     app.quit()
   }

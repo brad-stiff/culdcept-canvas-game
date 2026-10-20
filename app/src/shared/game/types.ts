@@ -104,8 +104,9 @@ export type GameConfig = {
 
 export type GameState = {
   config: GameConfig
-  players: [Player, Player]
-  currentPlayerIndex: 0 | 1
+  /** 2–4 cepters. */
+  players: Player[]
+  currentPlayerIndex: number
   territories: Territory[]
   phase: GamePhase
   lastRoll: number | null

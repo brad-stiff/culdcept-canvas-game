@@ -8,9 +8,10 @@ export type SpellResult = {
 }
 
 function withPlayer(state: GameState, player: Player): GameState {
-  const players = [...state.players] as [Player, Player]
-  players[player.id as 0 | 1] = player
-  return { ...state, players }
+  return {
+    ...state,
+    players: state.players.map((p) => (p.id === player.id ? player : p))
+  }
 }
 
 /** Phase-1 spell subset: draw, gain magic, chip damage to a random enemy creature. */
@@ -52,9 +53,8 @@ export function tryResolveSpell(state: GameState, caster: Player, spell: MatchCa
   const dmg = text.match(/deals?\s+(\d+)\s+damage/i)
   if (dmg) {
     const amount = Number(dmg[1])
-    const enemyId = caster.id === 0 ? 1 : 0
     const territories = state.territories.map((t) => {
-      if (t.ownerId !== enemyId) return t
+      if (t.ownerId === caster.id) return t
       const hp = Math.max(1, t.creature.hp - amount)
       return { ...t, creature: { ...t.creature, hp, mhp: Math.max(t.creature.mhp, hp) } }
     })

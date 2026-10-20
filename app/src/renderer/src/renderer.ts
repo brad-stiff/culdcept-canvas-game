@@ -3,6 +3,13 @@ import { backingSizeForCssBox } from '../../shared/canvasLayout'
 import type { MatchSeat } from '../../shared/game/types'
 import { filledSeats, type FreeBattleLobbyConfig } from '../../shared/lobby/types'
 import { GameView } from './game/GameView'
+import {
+  createClientSession,
+  createHostSession,
+  sendClientAction,
+  type ClientSession,
+  type HostSession
+} from './lan/session'
 import { createLibraryController } from './ui/library'
 import { createLobbyController } from './ui/lobby'
 
@@ -16,7 +23,7 @@ type StoredAccount = {
 
 const MAIN_ACTIONS: { id: string; title: string; subtitle: string }[] = [
   { id: 'story', title: 'Story', subtitle: 'Campaign (stub — out of v1 scope)' },
-  { id: 'free', title: 'Free Battle', subtitle: 'Colosseum · human or AI' },
+  { id: 'free', title: 'Free Battle', subtitle: 'Colosseum · 2–4p · LAN' },
   { id: 'library', title: 'Card library', subtitle: 'Browse Saga catalog' },
   { id: 'deck', title: 'Deck builder', subtitle: 'Compose decks (stub)' },
   { id: 'card', title: 'Card builder', subtitle: 'Author cards (stub)' },
@@ -26,6 +33,10 @@ const MAIN_ACTIONS: { id: string; title: string; subtitle: string }[] = [
 
 let activeGame: GameView | null = null
 let activeAccountName = 'Player'
+let hostSession: HostSession | null = null
+let clientSession: ClientSession | null = null
+let lanClientId: string | null = null
+let lanPlayerId: number | null = null
 
 function layoutCanvas(canvas: HTMLCanvasElement, shell: HTMLElement): void {
   const rect = shell.getBoundingClientRect()
@@ -63,7 +74,14 @@ function drawIdleCanvas(ctx: CanvasRenderingContext2D, w: number, h: number): vo
   ctx.restore()
 }
 
-function startFreeBattle(
+function stopLanSessions(): void {
+  hostSession?.dispose()
+  hostSession = null
+  clientSession?.dispose()
+  clientSession = null
+}
+
+function startLocalFreeBattle(
   canvas: HTMLCanvasElement,
   shell: HTMLElement,
   menuLayer: HTMLElement,
@@ -77,16 +95,15 @@ function startFreeBattle(
   }
 
   const seats = filledSeats(config)
-  const matchSeats: [MatchSeat, MatchSeat] = [
-    { name: seats[0].name, isAi: seats[0].kind === 'ai' },
-    { name: seats[1].name, isAi: seats[1].kind === 'ai' }
-  ]
-  activeGame = new GameView(canvas, shell, matchSeats, onEnd)
+  const matchSeats: MatchSeat[] = seats.map((s) => ({
+    name: s.name,
+    isAi: s.kind === 'ai'
+  }))
+  activeGame = new GameView(canvas, shell, { seats: matchSeats }, onEnd)
 
   menuLayer.classList.add('menu-layer-dismissed')
   stubNote.textContent = ''
-  const kinds = seats.map((s) => s.kind).join(' / ')
-  hudStatus.textContent = `Colosseum — ${matchSeats[0].name} vs ${matchSeats[1].name} (${kinds})`
+  hudStatus.textContent = `Colosseum — ${matchSeats.map((s) => s.name).join(' · ')}`
   layoutCanvas(canvas, shell)
 }
 
@@ -99,6 +116,7 @@ function endFreeBattle(
     activeGame.destroy()
     activeGame = null
   }
+  stopLanSessions()
   menuLayer.classList.remove('menu-layer-dismissed')
   hudStatus.textContent = `HUD — ${activeAccountName}`
   stubNote.textContent = 'Free Battle ended.'
@@ -150,6 +168,8 @@ function initMenu(): void {
   const menuLayer = document.getElementById('menu-layer')
   const lobbySeats = document.getElementById('lobby-seats')
   const lobbyHint = document.getElementById('lobby-hint')
+  const lobbyModes = document.getElementById('lobby-modes')
+  const lobbyLanPanel = document.getElementById('lobby-lan-panel')
   const btnLobbyStart = document.getElementById('btn-lobby-start')
   const btnLobbyBack = document.getElementById('btn-lobby-back')
   const libraryList = document.getElementById('library-list')
@@ -180,6 +200,8 @@ function initMenu(): void {
     !(menuLayer instanceof HTMLElement) ||
     !(lobbySeats instanceof HTMLElement) ||
     !(lobbyHint instanceof HTMLParagraphElement) ||
+    !(lobbyModes instanceof HTMLElement) ||
+    !(lobbyLanPanel instanceof HTMLElement) ||
     !(btnLobbyStart instanceof HTMLButtonElement) ||
     !(btnLobbyBack instanceof HTMLButtonElement) ||
     !(libraryList instanceof HTMLUListElement) ||
@@ -266,31 +288,131 @@ function initMenu(): void {
     activeAccountName = account.name
   }
 
+  const returnToMain = (): void => {
+    endFreeBattle(menu.menuLayer, menu.hudStatus, menu.stubNote)
+    hideAllScreens()
+    menu.screenMain.hidden = false
+  }
+
   lobby = createLobbyController({
     root: screenLobby,
     seatsEl: lobbySeats,
     hintEl: lobbyHint,
     startBtn: btnLobbyStart,
     backBtn: btnLobbyBack,
+    modeRowEl: lobbyModes,
+    lanPanelEl: lobbyLanPanel,
     onBack: () => {
+      stopLanSessions()
       hideAllScreens()
       menu.screenMain.hidden = false
     },
-    onStart: (config) => {
+    onStopLan: () => {
+      stopLanSessions()
+    },
+    onStartLocal: (config) => {
       hideAllScreens()
-      startFreeBattle(
+      startLocalFreeBattle(
         menu.canvas,
         menu.shell,
         menu.menuLayer,
         menu.hudStatus,
         menu.stubNote,
         config,
-        () => {
-          endFreeBattle(menu.menuLayer, menu.hudStatus, menu.stubNote)
-          hideAllScreens()
-          menu.screenMain.hidden = false
-        }
+        returnToMain
       )
+    },
+    onHostReady: async (config, clientId) => {
+      lanClientId = clientId
+      hostSession?.dispose()
+      hostSession = await createHostSession({
+        lobby: config,
+        hostClientId: clientId,
+        onLobbyChange: (lobbyConfig) => lobby.applyRemoteLobby(lobbyConfig),
+        onStatus: (text) => lobby.setLanInfo(text),
+        onState: (state) => {
+          if (!activeGame) {
+            const hostPid =
+              filledSeats(hostSession!.getLobby()).findIndex(
+                (s) => s.kind === 'human' && s.clientId === clientId
+              ) ?? 0
+            activeGame = new GameView(
+              menu.canvas,
+              menu.shell,
+              {
+                initialState: state,
+                localPlayerId: hostPid >= 0 ? hostPid : 0,
+                runAi: false,
+                onLocalAction: (action) => hostSession?.applyHostAction(action)
+              },
+              returnToMain
+            )
+            menu.menuLayer.classList.add('menu-layer-dismissed')
+            menu.hudStatus.textContent = 'Colosseum — LAN host'
+            layoutCanvas(menu.canvas, menu.shell)
+            hideAllScreens()
+          }
+          activeGame.setState(state)
+        }
+      })
+      hostSession.setLobby(config)
+    },
+    onHostStartMatch: (config, clientId) => {
+      if (!hostSession) {
+        lobby.setStatus('Open LAN first.', true)
+        return
+      }
+      lanClientId = clientId
+      hostSession.setLobby(config)
+      hostSession.startMatch()
+    },
+    onJoin: async (host, port, name, clientId) => {
+      lanClientId = clientId
+      clientSession?.dispose()
+      clientSession = await createClientSession({
+        host,
+        port,
+        name,
+        clientId,
+        onWelcome: (playerId, lobbyConfig) => {
+          lobby.applyRemoteLobby(lobbyConfig)
+          lobby.setStatus(
+            playerId == null
+              ? 'Connected — waiting for a human seat.'
+              : `Connected as seat ${playerId + 1}.`,
+            playerId == null
+          )
+        },
+        onLobby: (lobbyConfig) => lobby.applyRemoteLobby(lobbyConfig),
+        onMatchStart: (_seats, yourPlayerId) => {
+          lanPlayerId = yourPlayerId
+          menu.hudStatus.textContent = `Colosseum — LAN client (P${yourPlayerId + 1})`
+        },
+        onState: (state) => {
+          if (!activeGame) {
+            activeGame = new GameView(
+              menu.canvas,
+              menu.shell,
+              {
+                initialState: state,
+                localPlayerId: lanPlayerId ?? 0,
+                runAi: false,
+                onLocalAction: (action) => {
+                  if (lanClientId) sendClientAction(lanClientId, action)
+                }
+              },
+              returnToMain
+            )
+            menu.menuLayer.classList.add('menu-layer-dismissed')
+            layoutCanvas(menu.canvas, menu.shell)
+            hideAllScreens()
+          } else {
+            activeGame.setState(state)
+          }
+        },
+        onError: (message) => lobby.setStatus(message, true),
+        onDisconnected: () => lobby.setStatus('Disconnected from host.', true)
+      })
     }
   })
 

@@ -15,6 +15,7 @@ import {
   resetInstanceIds,
   shuffleInPlace
 } from './matchCards'
+import { PLAYER_COLORS } from './playerColors'
 import { drawOne, isCastableSpell, tryResolveSpell } from './spells'
 import type {
   GameAction,
@@ -28,8 +29,17 @@ import type {
 
 export const MVP_CONFIG = COLOSSEUM_CONFIG
 
-function otherPlayerIndex(index: 0 | 1): 0 | 1 {
-  return index === 0 ? 1 : 0
+function nextPlayerIndex(state: GameState): number {
+  return (state.currentPlayerIndex + 1) % state.players.length
+}
+
+function withPlayers(state: GameState, players: Player[]): GameState {
+  return { ...state, players }
+}
+
+function replacePlayer(state: GameState, player: Player): GameState {
+  const players = state.players.map((p) => (p.id === player.id ? player : p))
+  return withPlayers(state, players)
 }
 
 function clonePlayer(player: Player): Player {
@@ -63,8 +73,8 @@ function withWinner(state: GameState): GameState {
   return state
 }
 
-function makePlayer(seat: MatchSeat, id: 0 | 1, color: string, startMagic: number): Player {
-  const book = shuffleInPlace(buildStarterBook(id === 0 ? 1 : 17))
+function makePlayer(seat: MatchSeat, id: number, color: string, startMagic: number): Player {
+  const book = shuffleInPlace(buildStarterBook(id * 17 + 3))
   let player: Player = {
     id,
     name: seat.name,
@@ -83,20 +93,23 @@ function makePlayer(seat: MatchSeat, id: 0 | 1, color: string, startMagic: numbe
   return player
 }
 
-export function createInitialState(seats: [MatchSeat, MatchSeat] | [string, string]): GameState {
-  resetInstanceIds()
-  const normalized: [MatchSeat, MatchSeat] =
-    typeof seats[0] === 'string'
-      ? [
-          { name: seats[0], isAi: false },
-          { name: seats[1] as string, isAi: false }
-        ]
-      : (seats as [MatchSeat, MatchSeat])
+function normalizeSeats(seats: MatchSeat[] | string[]): MatchSeat[] {
+  if (typeof seats[0] === 'string') {
+    return (seats as string[]).map((name) => ({ name, isAi: false }))
+  }
+  return seats as MatchSeat[]
+}
 
-  const players: [Player, Player] = [
-    makePlayer(normalized[0], 0, '#5b9fd4', COLOSSEUM_CONFIG.startMagic),
-    makePlayer(normalized[1], 1, '#d45b7a', COLOSSEUM_CONFIG.startMagic)
-  ]
+export function createInitialState(seats: MatchSeat[] | string[]): GameState {
+  resetInstanceIds()
+  const normalized = normalizeSeats(seats)
+  if (normalized.length < 2 || normalized.length > 4) {
+    throw new Error('Free Battle requires 2–4 players')
+  }
+
+  const players = normalized.map((seat, id) =>
+    makePlayer(seat, id, PLAYER_COLORS[id] ?? '#888', COLOSSEUM_CONFIG.startMagic)
+  )
 
   return {
     config: COLOSSEUM_CONFIG,
@@ -106,7 +119,7 @@ export function createInitialState(seats: [MatchSeat, MatchSeat] | [string, stri
     phase: 'upkeep',
     lastRoll: null,
     log: [
-      `Free Battle — ${COLOSSEUM_CONFIG.mapName}. First to ${COLOSSEUM_CONFIG.targetMagic}G (magic + symbols) wins.`
+      `Free Battle — ${COLOSSEUM_CONFIG.mapName} (${players.length} cepters). First to ${COLOSSEUM_CONFIG.targetMagic}G (magic + symbols) wins.`
     ],
     pendingAction: null,
     selectedSquareId: null,
@@ -121,14 +134,11 @@ function beginUpkeep(state: GameState): GameState {
   let player = clonePlayer(state.players[idx])
   const drawn = drawOne(player, state.config.handLimit)
   player = drawn.player
-  const players = [...state.players] as [Player, Player]
-  players[idx] = player
   const log = drawn.drew
     ? appendLog(state, `${player.name} draws ${drawn.drew.name}.`)
     : appendLog(state, `${player.name}'s turn.`)
   return {
-    ...state,
-    players,
+    ...replacePlayer(state, player),
     phase: 'roll',
     lastRoll: null,
     pendingAction: null,
@@ -139,7 +149,7 @@ function beginUpkeep(state: GameState): GameState {
 }
 
 function endTurn(state: GameState): GameState {
-  const next = otherPlayerIndex(state.currentPlayerIndex)
+  const next = nextPlayerIndex(state)
   return beginUpkeep({
     ...state,
     currentPlayerIndex: next,
@@ -153,11 +163,8 @@ function endTurn(state: GameState): GameState {
 
 function afterLanding(state: GameState, player: Player): GameState {
   const square = squareById(state.config.board, player.position)
-  const players = [...state.players] as [Player, Player]
-  players[player.id as 0 | 1] = player
   let next: GameState = {
-    ...state,
-    players,
+    ...replacePlayer(state, player),
     phase: 'landed',
     selectedSquareId: player.position,
     pendingAction: null,
@@ -166,10 +173,8 @@ function afterLanding(state: GameState, player: Player): GameState {
 
   if (square.squareType === 'fort') {
     player = { ...player, magic: player.magic + state.config.fortMagic }
-    players[player.id as 0 | 1] = player
     next = {
-      ...next,
-      players,
+      ...replacePlayer(next, player),
       log: appendLog(next, `${player.name} stops at ${square.name} (+${state.config.fortMagic}G).`)
     }
   }
@@ -196,9 +201,7 @@ function applyRoll(state: GameState): GameState {
     player.magic += state.config.lapMagic
     log = [...log.slice(0, -1), `${player.name} rolls ${roll} and laps (+${state.config.lapMagic}G).`]
   }
-  const players = [...state.players] as [Player, Player]
-  players[idx] = player
-  return afterLanding({ ...state, players, lastRoll: roll, log }, player)
+  return afterLanding({ ...replacePlayer(state, player), lastRoll: roll, log }, player)
 }
 
 function removeFromHand(player: Player, instanceId: string): { player: Player; card: MatchCard } {
@@ -225,12 +228,9 @@ function placeCreature(state: GameState, cardId: string): GameState {
     ...cloneTerritories(state.territories),
     { squareId, ownerId: player.id, creature: cloneMatchCard(card), level: 1 }
   ]
-  const players = [...state.players] as [Player, Player]
-  players[idx] = player
   return withWinner(
     endTurn({
-      ...state,
-      players,
+      ...replacePlayer(state, player),
       territories,
       log: appendLog(state, `${player.name} summons ${card.name} on ${square.name}.`)
     })
@@ -298,14 +298,12 @@ function finishBattle(state: GameState, itemId: string | null): GameState {
     const toll = tollAmount(state, squareId)
     if (player.magic >= toll) {
       player = { ...player, magic: player.magic - toll }
-      const owner = clonePlayer(state.players[terr.ownerId as 0 | 1])
+      const owner = clonePlayer(state.players[terr.ownerId])
       owner.magic += toll
-      const players = [...state.players] as [Player, Player]
-      players[idx] = player
-      players[terr.ownerId as 0 | 1] = owner
+      let next = replacePlayer(state, player)
+      next = replacePlayer(next, owner)
       return withWinner({
-        ...state,
-        players,
+        ...next,
         territories,
         phase: 'battle_result',
         lastBattle: {
@@ -318,11 +316,8 @@ function finishBattle(state: GameState, itemId: string | null): GameState {
     }
   }
 
-  const players = [...state.players] as [Player, Player]
-  players[idx] = player
   return {
-    ...state,
-    players,
+    ...replacePlayer(state, player),
     territories,
     phase: 'battle_result',
     lastBattle: outcome,
@@ -340,15 +335,13 @@ function payToll(state: GameState): GameState {
   const toll = tollAmount(state, squareId)
   if (player.magic < toll) return state
   player = { ...player, magic: player.magic - toll }
-  const owner = clonePlayer(state.players[terr.ownerId as 0 | 1])
+  const owner = clonePlayer(state.players[terr.ownerId])
   owner.magic += toll
-  const players = [...state.players] as [Player, Player]
-  players[idx] = player
-  players[terr.ownerId as 0 | 1] = owner
+  let next = replacePlayer(state, player)
+  next = replacePlayer(next, owner)
   return withWinner(
     endTurn({
-      ...state,
-      players,
+      ...next,
       log: appendLog(state, `${player.name} pays ${toll}G toll to ${owner.name}.`)
     })
   )
@@ -367,12 +360,9 @@ function levelUp(state: GameState): GameState {
   const territories = cloneTerritories(state.territories).map((t) =>
     t.squareId === squareId ? { ...t, level: t.level + 1 } : t
   )
-  const players = [...state.players] as [Player, Player]
-  players[idx] = player
   return withWinner(
     endTurn({
-      ...state,
-      players,
+      ...replacePlayer(state, player),
       territories,
       log: appendLog(state, `${player.name} levels land to ${terr.level + 1} (−${cost}G).`)
     })
@@ -384,23 +374,17 @@ function shrinePray(state: GameState): GameState {
   let player = clonePlayer(state.players[idx])
   if (Math.random() < 0.5) {
     player = { ...player, magic: player.magic + 50 }
-    const players = [...state.players] as [Player, Player]
-    players[idx] = player
     return withWinner(
       endTurn({
-        ...state,
-        players,
+        ...replacePlayer(state, player),
         log: appendLog(state, `${player.name} prays at the Shrine (+50G).`)
       })
     )
   }
   const drawn = drawOne(player, state.config.handLimit)
   player = drawn.player
-  const players = [...state.players] as [Player, Player]
-  players[idx] = player
   return endTurn({
-    ...state,
-    players,
+    ...replacePlayer(state, player),
     log: appendLog(
       state,
       drawn.drew
@@ -561,6 +545,6 @@ export function reduceGame(state: GameState, action: GameAction): GameState {
 }
 
 /** Ensure a freshly created match starts on roll after first upkeep. */
-export function startMatch(seats: [MatchSeat, MatchSeat] | [string, string]): GameState {
+export function startMatch(seats: MatchSeat[] | string[]): GameState {
   return beginUpkeep(createInitialState(seats))
 }
