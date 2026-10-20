@@ -1,6 +1,9 @@
 import '../assets/shell.css'
 import { backingSizeForCssBox } from '../../shared/canvasLayout'
+import { filledSeats, type FreeBattleLobbyConfig } from '../../shared/lobby/types'
 import { GameView } from './game/GameView'
+import { createLibraryController } from './ui/library'
+import { createLobbyController } from './ui/lobby'
 
 const STORAGE_KEY = 'culdcept_canvas_accounts_v1'
 
@@ -11,9 +14,9 @@ type StoredAccount = {
 }
 
 const MAIN_ACTIONS: { id: string; title: string; subtitle: string }[] = [
-  { id: 'story', title: 'Story', subtitle: 'Campaign (stub)' },
-  { id: 'quick', title: 'Quick game', subtitle: '2-player skirmish' },
-  { id: 'library', title: 'Card library', subtitle: 'Browse cards (stub)' },
+  { id: 'story', title: 'Story', subtitle: 'Campaign (stub — out of v1 scope)' },
+  { id: 'free', title: 'Free Battle', subtitle: 'Local lobby · LAN later' },
+  { id: 'library', title: 'Card library', subtitle: 'Browse Saga catalog' },
   { id: 'deck', title: 'Deck builder', subtitle: 'Compose decks (stub)' },
   { id: 'card', title: 'Card builder', subtitle: 'Author cards (stub)' },
   { id: 'board', title: 'Board builder', subtitle: 'Maps & boards (stub)' },
@@ -55,33 +58,35 @@ function drawIdleCanvas(ctx: CanvasRenderingContext2D, w: number, h: number): vo
   ctx.font = `${Math.round(Math.min(w, h) * 0.035)}px system-ui, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText('Choose Quick game from the main menu', w / 2, h / 2)
+  ctx.fillText('Choose Free Battle from the main menu', w / 2, h / 2)
   ctx.restore()
 }
 
-function startQuickGame(
+function startFreeBattle(
   canvas: HTMLCanvasElement,
   shell: HTMLElement,
   menuLayer: HTMLElement,
   hudStatus: HTMLDivElement,
-  stubNote: HTMLParagraphElement
+  stubNote: HTMLParagraphElement,
+  config: FreeBattleLobbyConfig,
+  onEnd: () => void
 ): void {
   if (activeGame) {
     activeGame.destroy()
   }
 
-  const opponent = activeAccountName === 'Player' ? 'Rival' : `${activeAccountName} II`
-  activeGame = new GameView(canvas, shell, [activeAccountName, opponent], () => {
-    endQuickGame(menuLayer, hudStatus, stubNote)
-  })
+  const seats = filledSeats(config)
+  const names: [string, string] = [seats[0].name, seats[1].name]
+  activeGame = new GameView(canvas, shell, names, onEnd)
 
   menuLayer.classList.add('menu-layer-dismissed')
   stubNote.textContent = ''
-  hudStatus.textContent = `Skirmish — ${activeAccountName} vs ${opponent}`
+  const kinds = seats.map((s) => s.kind).join(' / ')
+  hudStatus.textContent = `Free Battle — ${names[0]} vs ${names[1]} (${kinds})`
   layoutCanvas(canvas, shell)
 }
 
-function endQuickGame(
+function endFreeBattle(
   menuLayer: HTMLElement,
   hudStatus: HTMLDivElement,
   stubNote: HTMLParagraphElement
@@ -92,7 +97,7 @@ function endQuickGame(
   }
   menuLayer.classList.remove('menu-layer-dismissed')
   hudStatus.textContent = `HUD — ${activeAccountName}`
-  stubNote.textContent = 'Quick game ended. Roll again anytime.'
+  stubNote.textContent = 'Free Battle ended.'
 }
 
 function readAccounts(): StoredAccount[] {
@@ -124,6 +129,8 @@ function normalizeName(name: string): string {
 function initMenu(): void {
   const screenAccount = document.getElementById('screen-account')
   const screenMain = document.getElementById('screen-main')
+  const screenLobby = document.getElementById('screen-lobby')
+  const screenLibrary = document.getElementById('screen-library')
   const newNameInput = document.getElementById('new-account-name')
   const btnCreate = document.getElementById('btn-create-account')
   const existingSelect = document.getElementById('existing-account')
@@ -137,10 +144,23 @@ function initMenu(): void {
   const canvas = document.getElementById('game')
   const shell = document.getElementById('shell')
   const menuLayer = document.getElementById('menu-layer')
+  const lobbySeats = document.getElementById('lobby-seats')
+  const lobbyHint = document.getElementById('lobby-hint')
+  const btnLobbyStart = document.getElementById('btn-lobby-start')
+  const btnLobbyBack = document.getElementById('btn-lobby-back')
+  const libraryList = document.getElementById('library-list')
+  const libraryDetail = document.getElementById('library-detail')
+  const libraryCountLine = document.getElementById('library-count-line')
+  const librarySearch = document.getElementById('library-search')
+  const libraryKind = document.getElementById('library-kind')
+  const libraryElement = document.getElementById('library-element')
+  const btnLibraryBack = document.getElementById('btn-library-back')
 
   if (
     !(screenAccount instanceof HTMLElement) ||
     !(screenMain instanceof HTMLElement) ||
+    !(screenLobby instanceof HTMLElement) ||
+    !(screenLibrary instanceof HTMLElement) ||
     !(newNameInput instanceof HTMLInputElement) ||
     !(btnCreate instanceof HTMLButtonElement) ||
     !(existingSelect instanceof HTMLSelectElement) ||
@@ -153,7 +173,18 @@ function initMenu(): void {
     !(hudStatus instanceof HTMLDivElement) ||
     !(canvas instanceof HTMLCanvasElement) ||
     !(shell instanceof HTMLElement) ||
-    !(menuLayer instanceof HTMLElement)
+    !(menuLayer instanceof HTMLElement) ||
+    !(lobbySeats instanceof HTMLElement) ||
+    !(lobbyHint instanceof HTMLParagraphElement) ||
+    !(btnLobbyStart instanceof HTMLButtonElement) ||
+    !(btnLobbyBack instanceof HTMLButtonElement) ||
+    !(libraryList instanceof HTMLUListElement) ||
+    !(libraryDetail instanceof HTMLElement) ||
+    !(libraryCountLine instanceof HTMLParagraphElement) ||
+    !(librarySearch instanceof HTMLInputElement) ||
+    !(libraryKind instanceof HTMLSelectElement) ||
+    !(libraryElement instanceof HTMLSelectElement) ||
+    !(btnLibraryBack instanceof HTMLButtonElement)
   ) {
     return
   }
@@ -161,6 +192,8 @@ function initMenu(): void {
   const menu = {
     screenAccount,
     screenMain,
+    screenLobby,
+    screenLibrary,
     newNameInput,
     btnCreate,
     existingSelect,
@@ -174,6 +207,16 @@ function initMenu(): void {
     canvas,
     shell,
     menuLayer
+  }
+
+  let lobby!: ReturnType<typeof createLobbyController>
+  let library!: ReturnType<typeof createLibraryController>
+
+  function hideAllScreens(): void {
+    menu.screenAccount.hidden = true
+    menu.screenMain.hidden = true
+    lobby.hide()
+    library.hide()
   }
 
   function setHint(text: string, isError: boolean): void {
@@ -202,8 +245,8 @@ function initMenu(): void {
   }
 
   function showAccount(): void {
+    hideAllScreens()
     menu.screenAccount.hidden = false
-    menu.screenMain.hidden = true
     menu.newNameInput.value = ''
     setHint('', false)
     refreshAccountSelect()
@@ -212,12 +255,55 @@ function initMenu(): void {
   }
 
   function showMain(account: StoredAccount): void {
-    menu.screenAccount.hidden = true
+    hideAllScreens()
     menu.screenMain.hidden = false
     menu.mainUserLine.textContent = `Signed in as ${account.name}`
     menu.hudStatus.textContent = `HUD — ${account.name}`
     activeAccountName = account.name
   }
+
+  lobby = createLobbyController({
+    root: screenLobby,
+    seatsEl: lobbySeats,
+    hintEl: lobbyHint,
+    startBtn: btnLobbyStart,
+    backBtn: btnLobbyBack,
+    onBack: () => {
+      hideAllScreens()
+      menu.screenMain.hidden = false
+    },
+    onStart: (config) => {
+      hideAllScreens()
+      startFreeBattle(
+        menu.canvas,
+        menu.shell,
+        menu.menuLayer,
+        menu.hudStatus,
+        menu.stubNote,
+        config,
+        () => {
+          endFreeBattle(menu.menuLayer, menu.hudStatus, menu.stubNote)
+          hideAllScreens()
+          menu.screenMain.hidden = false
+        }
+      )
+    }
+  })
+
+  library = createLibraryController({
+    root: screenLibrary,
+    listEl: libraryList,
+    detailEl: libraryDetail,
+    countLine: libraryCountLine,
+    searchInput: librarySearch,
+    kindSelect: libraryKind,
+    elementSelect: libraryElement,
+    backBtn: btnLibraryBack,
+    onBack: () => {
+      hideAllScreens()
+      menu.screenMain.hidden = false
+    }
+  })
 
   function buildMainActions(): void {
     menu.mainActions.innerHTML = ''
@@ -228,8 +314,14 @@ function initMenu(): void {
       btn.dataset.stubId = action.id
       btn.innerHTML = `${action.title}<span>${action.subtitle}</span>`
       btn.addEventListener('click', () => {
-        if (action.id === 'quick') {
-          startQuickGame(menu.canvas, menu.shell, menu.menuLayer, menu.hudStatus, menu.stubNote)
+        if (action.id === 'free') {
+          hideAllScreens()
+          lobby.show(activeAccountName)
+          return
+        }
+        if (action.id === 'library') {
+          hideAllScreens()
+          library.show()
           return
         }
         menu.stubNote.textContent = `${action.title}: stub — not implemented yet.`

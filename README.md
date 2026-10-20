@@ -1,6 +1,8 @@
 # culdcept-canvas-game
 
-Electron + Vite + TypeScript skeleton for a canvas 2D game (Culdcept-style). Application code lives in the [`app`](./app) workspace.
+Electron + Vite + TypeScript Free Battle clone of **Culdcept Saga** (personal / at-home use). Application code lives in the [`app`](./app) workspace.
+
+**Phase 0 (current):** Saga card catalog + Card library, Free Battle lobby (Human/AI/Open seats), HTML menus + canvas match, Mac/Windows packaging smoke.
 
 ## Prerequisites
 
@@ -45,7 +47,29 @@ Run the **built** app (electron-vite preview loads the production output):
 npm run start
 ```
 
-Packaging/installers are not configured yet; distribution is deferred.
+### Packaging (unsigned home builds)
+
+```bash
+npm run pack          # platform dir under app/dist-packaged
+npm run dist:mac      # macOS dmg/zip
+npm run dist:win      # Windows nsis/portable (best on a Windows machine)
+```
+
+### Saga card catalog
+
+Regenerate from the markdown source under [`app/data/sources`](./app/data/sources):
+
+```bash
+npm run cards:parse
+```
+
+Download Saga card art from Culdcept Central (personal / at-home use only; gitignored):
+
+```bash
+npm run cards:art
+```
+
+Files land in [`app/src/renderer/public/assets/cards`](./app/src/renderer/public/assets/cards) as `{cardId}.jpg`.
 
 ## Tests
 

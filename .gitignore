@@ -1,6 +1,13 @@
 node_modules
 dist
+dist-packaged
 out
 coverage
 *.log
 .DS_Store
+# Personal card/tile dumps (keep READMEs + download manifest)
+app/src/renderer/public/assets/cards/*
+!app/src/renderer/public/assets/cards/README.md
+!app/src/renderer/public/assets/cards/download-manifest.json
+app/src/renderer/public/assets/tiles/*
+!app/src/renderer/public/assets/tiles/README.md

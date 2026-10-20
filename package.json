@@ -8,6 +8,11 @@
     "start": "npm run start -w app",
     "lint": "npm run lint -w app",
     "test": "npm run test -w app",
-    "typecheck": "npm run typecheck -w app"
+    "typecheck": "npm run typecheck -w app",
+    "cards:parse": "npm run cards:parse -w app",
+    "cards:art": "npm run cards:art -w app",
+    "pack": "npm run pack -w app",
+    "dist:mac": "npm run dist:mac -w app",
+    "dist:win": "npm run dist:win -w app"
   }
 }

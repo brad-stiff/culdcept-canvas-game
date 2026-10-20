@@ -67,6 +67,71 @@
           <p class="menu-stub-note" id="stub-note" role="status" aria-live="polite"></p>
         </div>
       </section>
+
+      <section id="screen-lobby" class="menu-screen menu-screen-xl" aria-labelledby="lobby-title" hidden>
+        <div class="menu-card menu-card-wide">
+          <header class="menu-main-header">
+            <div>
+              <h1 id="lobby-title" class="menu-title">Free Battle</h1>
+              <p class="menu-lead">
+                Local seats for now (LAN in Phase 2). Fill exactly two seats — AI is a name
+                placeholder until Phase 1.
+              </p>
+            </div>
+            <button type="button" id="btn-lobby-back" class="btn-ghost">Back</button>
+          </header>
+
+          <div id="lobby-seats" class="lobby-seats" role="list"></div>
+          <p id="lobby-hint" class="menu-hint" role="status"></p>
+
+          <div class="menu-row lobby-actions">
+            <button type="button" id="btn-lobby-start">Start match</button>
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="screen-library"
+        class="menu-screen menu-screen-xl"
+        aria-labelledby="library-title"
+        hidden
+      >
+        <div class="menu-card menu-card-wide menu-card-library">
+          <header class="menu-main-header">
+            <div>
+              <h1 id="library-title" class="menu-title">Card library</h1>
+              <p class="menu-lead" id="library-count-line">Saga card catalog</p>
+            </div>
+            <button type="button" id="btn-library-back" class="btn-ghost">Back</button>
+          </header>
+
+          <div class="library-filters menu-row">
+            <input id="library-search" type="search" placeholder="Search name or ability" />
+            <select id="library-kind" aria-label="Card kind">
+              <option value="all">All kinds</option>
+              <option value="creature">Creatures</option>
+              <option value="item">Items</option>
+              <option value="spell">Spells</option>
+            </select>
+            <select id="library-element" aria-label="Element">
+              <option value="all">All elements</option>
+              <option value="neutral">Neutral</option>
+              <option value="fire">Fire</option>
+              <option value="water">Water</option>
+              <option value="earth">Earth</option>
+              <option value="air">Air</option>
+              <option value="dual">Dual</option>
+            </select>
+          </div>
+
+          <div class="library-layout">
+            <ul id="library-list" class="library-list" role="listbox" aria-label="Cards"></ul>
+            <article id="library-detail" class="library-detail" aria-live="polite">
+              <p class="menu-hint">Select a card to view details.</p>
+            </article>
+          </div>
+        </div>
+      </section>
     </div>
 
     <script type="module" src="./src/renderer.ts"></script>
