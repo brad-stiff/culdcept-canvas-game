@@ -9,6 +9,7 @@ describe('graph movement', () => {
     if (walk.kind === 'land') {
       expect(walk.position).toBe(4)
       expect(walk.crossedCastle).toBe(false)
+      expect(walk.path).toEqual([1, 2, 3, 4])
     }
   })
 
@@ -18,6 +19,7 @@ describe('graph movement', () => {
     if (walk.kind === 'land') {
       expect(walk.position).toBe(1)
       expect(walk.crossedCastle).toBe(true)
+      expect(walk.path).toEqual([0, 1])
     }
   })
 
@@ -28,6 +30,7 @@ describe('graph movement', () => {
       expect(walk.position).toBe(0)
       expect(walk.remaining).toBe(3)
       expect(walk.choices).toEqual([1, 6, 11, 16])
+      expect(walk.path).toEqual([])
     }
   })
 

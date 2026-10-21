@@ -171,7 +171,8 @@ export function createInitialState(
     winnerId: null,
     pendingAttackerId: null,
     pendingSteps: 0,
-    pathFromId: null
+    pathFromId: null,
+    worldTexts: []
   }
 }
 

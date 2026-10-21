@@ -162,6 +162,8 @@ export type GameState = {
   pendingSteps: number
   /** Square we arrived from (excludes reverse at forks). */
   pathFromId: number | null
+  /** Ability text of World/Global spells currently affecting the map. */
+  worldTexts: string[]
 }
 
 export type GameAction =

@@ -1,5 +1,5 @@
 import { crossedStart } from './board'
-import { resolveBattle } from './combat'
+import { resolveBattle, synergyBonus } from './combat'
 import { tollAmount, totalMagic } from './economy'
 import {
   globalBlockTransform,
@@ -9,6 +9,7 @@ import {
   reducedAbilityDamage
 } from './globals'
 import { COLOSSEUM_BOARD, COLOSSEUM_CONFIG } from './maps/colosseum'
+import { listSagaCards } from '../cards/catalog'
 import { getMapConfig } from './maps'
 import { getAvailableActions, reduceGame, startMatch } from './state'
 import { tryResolveSpell } from './spells'
@@ -88,6 +89,22 @@ describe('startMatch', () => {
     expect(state.config.mapId).toBe('temple-grounds')
     expect(state.config.board).toHaveLength(22)
   })
+
+  it('can start with an expanded book that includes a Revolt card', () => {
+    const saga = listSagaCards()
+    const bookCatalogIds = [
+      ...saga.filter((c) => c.kind === 'creature').slice(0, 33).map((c) => c.id),
+      ...saga.filter((c) => c.kind === 'item').slice(0, 8).map((c) => c.id),
+      ...saga.filter((c) => c.kind === 'spell').slice(0, 8).map((c) => c.id),
+      'revolt-goblin'
+    ]
+    const state = startMatch([
+      { name: 'Alice', isAi: false, bookCatalogIds },
+      { name: 'Bob', isAi: true }
+    ])
+    const all = state.players[0].hand.concat(state.players[0].book)
+    expect(all.some((c) => c.catalogId === 'revolt-goblin')).toBe(true)
+  })
 })
 
 describe('crossedStart', () => {
@@ -138,6 +155,23 @@ describe('reduceGame territory', () => {
     expect(state.territories[0].squareId).toBe(1)
     expect(state.territories[0].ownerId).toBe(0)
     expect(state.territories[0].level).toBe(1)
+  })
+})
+
+describe('synergy', () => {
+  it('grants +10 when another same-element creature is in play', () => {
+    const state = startMatch(['Alice', 'Bob'])
+    const fireA = creature({ name: 'Ammon', st: 30, hp: 30, element: 'fire', abilityText: 'Synergy: (ST & HP+20).' })
+    const fireB = creature({ name: 'Hound', st: 20, hp: 20, element: 'fire', instanceId: 'hound' })
+    const withPair = {
+      ...state,
+      territories: [
+        { squareId: 1, ownerId: 0, creature: fireA, level: 1, tollHalved: false },
+        { squareId: 2, ownerId: 0, creature: fireB, level: 1, tollHalved: false }
+      ]
+    }
+    expect(synergyBonus(withPair, fireA, 1)).toBe(10)
+    expect(synergyBonus(state, fireA, 1)).toBe(0)
   })
 })
 

@@ -9,6 +9,7 @@ coverage
 app/src/renderer/public/assets/cards/*
 !app/src/renderer/public/assets/cards/README.md
 !app/src/renderer/public/assets/cards/download-manifest.json
+!app/src/renderer/public/assets/cards/download-manifest-revolt.json
 app/src/renderer/public/assets/tiles/*
 !app/src/renderer/public/assets/tiles/README.md
 app/src/renderer/public/assets/maps/*

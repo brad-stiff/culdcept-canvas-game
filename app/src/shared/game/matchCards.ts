@@ -1,4 +1,4 @@
-import { listSagaCards } from '../cards/catalog'
+import { getCardById, listAllCards, listSagaCards } from '../cards/catalog'
 import type { SagaCard } from '../cards/types'
 import type { Element, ItemCategory, Keyword, MatchCard } from './types'
 
@@ -95,7 +95,9 @@ export function parseKeywords(abilityText: string): {
   if (/item\s*creature/i.test(text)) keywords.push('item_creature')
   if (/territory\s*ability/i.test(text)) keywords.push('territory_ability')
   if (/secret\s*art/i.test(text)) keywords.push('secret_art')
-  if (/global\s*ability/i.test(text)) keywords.push('global')
+  if (/global\s*ability|adds?\s+"[^"]+"\s+to\s+(?:the\s+)?world/i.test(text)) {
+    keywords.push('global')
+  }
 
   if (/neutralizes?\s*(?:effects?\s*of\s*)?weapons?/i.test(text) || /neutralizes?\s*weapon/i.test(text)) {
     keywords.push('neutralizes_weapon')
@@ -170,6 +172,10 @@ export function cloneMatchCard(card: MatchCard): MatchCard {
   }
 }
 
+export function cloneAsNewInstance(card: MatchCard): MatchCard {
+  return { ...cloneMatchCard(card), instanceId: nextInstanceId(card.catalogId) }
+}
+
 export function cloneHand(hand: MatchCard[]): MatchCard[] {
   return hand.map(cloneMatchCard)
 }
@@ -240,7 +246,7 @@ export function validateBookCatalogIds(catalogIds: string[]): BookValidation {
   if (catalogIds.length !== BOOK_LIMITS.total) {
     return { ok: false, message: `Book must have exactly ${BOOK_LIMITS.total} cards.` }
   }
-  const cards = catalogIds.map((id) => listSagaCards().find((c) => c.id === id))
+  const cards = catalogIds.map((id) => getCardById(id))
   if (cards.some((c) => !c)) {
     return { ok: false, message: 'Book contains unknown card ids.' }
   }
@@ -259,7 +265,7 @@ export function validateBookCatalogIds(catalogIds: string[]): BookValidation {
 export function buildBookFromCatalogIds(catalogIds: string[]): MatchCard[] {
   const validation = validateBookCatalogIds(catalogIds)
   if (!validation.ok) throw new Error(validation.message)
-  const byId = new Map(listSagaCards().map((c) => [c.id, c]))
+  const byId = new Map(listAllCards().map((c) => [c.id, c]))
   return catalogIds.map((id) => sagaCardToMatchCard(byId.get(id)!))
 }
 

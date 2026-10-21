@@ -126,6 +126,26 @@ export function resolveBattle(ants: Battleants): BattleOutcome {
   }
 }
 
+/** +10 ST/HP when another matching-element creature is in play. */
+export function synergyBonus(state: GameState, creature: MatchCard, squareId: number): number {
+  if (!/synergy/i.test(creature.abilityText)) return 0
+  const typeMatch = creature.abilityText.match(
+    /synergy\s*:\s*(fire|water|earth|air|neutral)/i
+  )
+  const want = (typeMatch?.[1] ?? creature.element)?.toLowerCase()
+  if (!want || want === 'dual') return 0
+  const other = state.territories.some(
+    (t) => t.squareId !== squareId && t.creature.element === want
+  )
+  return other ? 10 : 0
+}
+
+function withSynergy(state: GameState, creature: MatchCard, squareId: number): MatchCard {
+  const bonus = synergyBonus(state, creature, squareId)
+  if (!bonus) return creature
+  return { ...creature, st: creature.st + bonus, hp: creature.hp + bonus }
+}
+
 export function resolveBattleFromState(
   state: GameState,
   attacker: MatchCard,
@@ -138,8 +158,8 @@ export function resolveBattleFromState(
   }
   const square = squareById(state.config.board, squareId)
   return resolveBattle({
-    attacker: applyBattleGlobals(state, attacker, 'attacker'),
-    defender: applyBattleGlobals(state, terr.creature, 'defender'),
+    attacker: withSynergy(state, applyBattleGlobals(state, attacker, 'attacker'), squareId),
+    defender: withSynergy(state, applyBattleGlobals(state, terr.creature, 'defender'), squareId),
     item,
     square,
     landLevel: terr.level

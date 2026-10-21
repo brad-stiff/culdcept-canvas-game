@@ -1,4 +1,9 @@
-import { filterSagaCards, getSagaCatalog } from '../../../shared/cards/catalog'
+import {
+  filterCards,
+  getRevoltCatalog,
+  getSagaCatalog,
+  type CardSource
+} from '../../../shared/cards/catalog'
 import type { SagaCard, SagaCardElement, SagaCardKind } from '../../../shared/cards/types'
 import { parseKeywords } from '../../../shared/game/matchCards'
 import { resolveCardArtUrl } from './cardArt'
@@ -18,6 +23,11 @@ function formatStats(card: SagaCard): string {
   return `ST ${card.st} / HP ${card.hp} / MHP ${card.mhp} · ${formatCost(card)}`
 }
 
+function sourceLabel(source: string): string {
+  if (source === 'culdcept-revolt') return 'Revolt'
+  return 'Saga'
+}
+
 export function createLibraryController(opts: {
   root: HTMLElement
   listEl: HTMLUListElement
@@ -26,6 +36,7 @@ export function createLibraryController(opts: {
   searchInput: HTMLInputElement
   kindSelect: HTMLSelectElement
   elementSelect: HTMLSelectElement
+  sourceSelect: HTMLSelectElement
   backBtn: HTMLButtonElement
   onBack: () => void
 }): LibraryController {
@@ -54,9 +65,9 @@ export function createLibraryController(opts: {
         <img class="library-detail-art" alt="" src="${artUrl}" />
         <div>
           <h2>${escapeHtml(card.name)}</h2>
-          <p class="stat-line">${escapeHtml(card.kind)} · ${escapeHtml(element)}${
-            card.special ? ' · special' : ''
-          }</p>
+          <p class="stat-line">${escapeHtml(card.kind)} · ${escapeHtml(element)} · ${escapeHtml(
+            sourceLabel(card.source)
+          )}${card.special ? ' · special' : ''}</p>
           <p class="stat-line">${escapeHtml(formatStats(card))}</p>
           ${keywordHtml}
         </div>
@@ -74,10 +85,19 @@ export function createLibraryController(opts: {
     const token = ++renderToken
     const kind = opts.kindSelect.value as SagaCardKind | 'all'
     const element = opts.elementSelect.value as SagaCardElement | 'all'
+    const source = opts.sourceSelect.value as CardSource | 'all'
     const query = opts.searchInput.value
-    const cards = filterSagaCards({ kind, element, query })
+    const cards = filterCards({ kind, element, query, source })
+    const total =
+      source === 'culdcept-revolt'
+        ? getRevoltCatalog().counts.total
+        : source === 'all'
+          ? getSagaCatalog().counts.total + getRevoltCatalog().counts.total
+          : getSagaCatalog().counts.total
+    const gameLabel =
+      source === 'culdcept-revolt' ? 'Revolt' : source === 'all' ? 'Saga + Revolt' : 'Saga'
 
-    opts.countLine.textContent = `${cards.length} of ${getSagaCatalog().counts.total} Saga cards`
+    opts.countLine.textContent = `${cards.length} of ${total} ${gameLabel} cards`
     opts.listEl.innerHTML = ''
 
     for (const card of cards) {
@@ -112,6 +132,7 @@ export function createLibraryController(opts: {
   opts.searchInput.addEventListener('input', () => renderList())
   opts.kindSelect.addEventListener('change', () => renderList())
   opts.elementSelect.addEventListener('change', () => renderList())
+  opts.sourceSelect.addEventListener('change', () => renderList())
 
   return {
     show() {
@@ -120,6 +141,7 @@ export function createLibraryController(opts: {
       opts.searchInput.value = ''
       opts.kindSelect.value = 'all'
       opts.elementSelect.value = 'all'
+      opts.sourceSelect.value = 'culdcept-saga'
       renderList()
       void renderDetail(null)
     },

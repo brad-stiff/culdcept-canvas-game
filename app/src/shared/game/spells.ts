@@ -1,5 +1,5 @@
 import { reducedAbilityDamage } from './globals'
-import { cloneHand, cloneMatchCard } from './matchCards'
+import { cloneAsNewInstance, cloneHand, cloneMatchCard } from './matchCards'
 import type { GameState, MatchCard, Player } from './types'
 
 export type SpellResult = {
@@ -34,8 +34,44 @@ export function spellHasHandledEffect(text: string): boolean {
   )
 }
 
+export function recyclesToBook(text: string): boolean {
+  return /recycles?\s+to\s+(?:the\s+)?book/i.test(text)
+}
+
+export function isWorldSpell(text: string): boolean {
+  return /adds?\s+"[^"]+"\s+to\s+(?:the\s+)?world/i.test(text)
+}
+
+function applySpellAftermath(
+  original: GameState,
+  caster: Player,
+  spell: MatchCard,
+  result: SpellResult
+): SpellResult {
+  if (!result.handled) return result
+  const resolved = result.state.players.find((p) => p.id === caster.id)
+  if (!resolved) return result
+  let player = resolved
+  if (recyclesToBook(spell.abilityText)) {
+    player = {
+      ...player,
+      discard: player.discard.filter((c) => c.instanceId !== spell.instanceId),
+      book: [...player.book, cloneAsNewInstance(spell)]
+    }
+  }
+  let nextState = withPlayer(result.state, player)
+  if (isWorldSpell(spell.abilityText)) {
+    nextState = { ...nextState, worldTexts: [...(original.worldTexts ?? []), spell.abilityText] }
+  }
+  return { ...result, state: nextState }
+}
+
 /** Phase-3A spell patterns: draw, magic, damage, destroy, heal, discard, return. */
 export function tryResolveSpell(state: GameState, caster: Player, spell: MatchCard): SpellResult {
+  return applySpellAftermath(state, caster, spell, resolveSpellEffects(state, caster, spell))
+}
+
+function resolveSpellEffects(state: GameState, caster: Player, spell: MatchCard): SpellResult {
   const text = spell.abilityText
   let player = {
     ...caster,

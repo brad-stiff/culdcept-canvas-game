@@ -378,6 +378,15 @@ body {
   font-size: 0.9rem;
 }
 
+.deck-include-revolt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: #c5c9d0;
+  white-space: nowrap;
+}
+
 .library-layout {
   display: grid;
   grid-template-columns: minmax(200px, 1fr) minmax(240px, 1.1fr);

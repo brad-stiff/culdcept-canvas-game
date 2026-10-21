@@ -36,12 +36,16 @@ export type WalkResult =
       cameFrom: number | null
       choices: number[]
       crossedCastle: boolean
+      /** Squares entered after `start` (not including `start`). */
+      path: number[]
     }
   | {
       kind: 'land'
       position: number
       cameFrom: number | null
       crossedCastle: boolean
+      /** Squares entered after `start` (not including `start`). */
+      path: number[]
     }
 
 export function walkPath(
@@ -54,24 +58,26 @@ export function walkPath(
   let from = cameFrom
   let remaining = steps
   let crossedCastle = false
+  const path: number[] = []
   while (remaining > 0) {
     const square = squareById(board, position)
     const choices = pathChoices(square, from)
     if (choices.length === 0) {
-      return { kind: 'land', position, cameFrom: from, crossedCastle }
+      return { kind: 'land', position, cameFrom: from, crossedCastle, path }
     }
     if (choices.length > 1) {
-      return { kind: 'fork', position, remaining, cameFrom: from, choices, crossedCastle }
+      return { kind: 'fork', position, remaining, cameFrom: from, choices, crossedCastle, path }
     }
     const next = choices[0]
     from = position
     position = next
     remaining -= 1
+    path.push(position)
     if (squareById(board, position).squareType === 'castle') {
       crossedCastle = true
     }
   }
-  return { kind: 'land', position, cameFrom: from, crossedCastle }
+  return { kind: 'land', position, cameFrom: from, crossedCastle, path }
 }
 
 export function advancePosition(position: number, steps: number, boardLength: number): number {

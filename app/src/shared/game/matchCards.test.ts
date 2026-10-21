@@ -1,4 +1,12 @@
-import { canInvadeWith, canPlaceOnTerrain, parseKeywords } from './matchCards'
+import { listSagaCards } from '../cards/catalog'
+import {
+  buildBookFromCatalogIds,
+  buildStarterBook,
+  canInvadeWith,
+  canPlaceOnTerrain,
+  parseKeywords,
+  validateBookCatalogIds
+} from './matchCards'
 
 describe('parseKeywords 3A', () => {
   it('parses defensive, scroll, regen, instant death', () => {
@@ -55,5 +63,25 @@ describe('placement and invasion gates', () => {
       itemLimits: []
     }
     expect(canInvadeWith(defensive as never)).toBe(false)
+  })
+})
+
+describe('books', () => {
+  it('keeps starter books on Saga ids only', () => {
+    const book = buildStarterBook(0)
+    expect(book).toHaveLength(50)
+    expect(book.every((c) => !c.catalogId.startsWith('revolt-'))).toBe(true)
+  })
+
+  it('validates an expanded mix that includes a Revolt creature', () => {
+    const saga = listSagaCards()
+    const creatures = saga.filter((c) => c.kind === 'creature').slice(0, 33)
+    const items = saga.filter((c) => c.kind === 'item').slice(0, 8)
+    const spells = saga.filter((c) => c.kind === 'spell').slice(0, 8)
+    const ids = [...creatures, ...items, ...spells].map((c) => c.id).concat('revolt-goblin')
+    expect(ids).toHaveLength(50)
+    expect(validateBookCatalogIds(ids)).toEqual({ ok: true })
+    const built = buildBookFromCatalogIds(ids)
+    expect(built.some((c) => c.catalogId === 'revolt-goblin')).toBe(true)
   })
 })

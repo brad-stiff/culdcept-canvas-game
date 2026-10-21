@@ -1,4 +1,4 @@
-import { runAiUntilHuman } from '../../../shared/game/ai'
+import { chooseAiAction } from '../../../shared/game/ai'
 import { totalMagic } from '../../../shared/game/economy'
 import { loopLayoutPositions } from '../../../shared/game/maps/layout'
 import { PLAYER_COLORS } from '../../../shared/game/playerColors'
@@ -12,13 +12,42 @@ import {
   reduceGame,
   startMatch
 } from '../../../shared/game/state'
-import type { GameAction, GameConfig, GameState, LandedAction, MatchSeat } from '../../../shared/game/types'
+import type {
+  GameAction,
+  GameConfig,
+  GameState,
+  LandedAction,
+  MatchSeat,
+  Player
+} from '../../../shared/game/types'
+import { createDiceSpin, diceProgress, diceRotation, drawDie, type DiceSpin } from './dice'
+import { easeInOut, lerp, movementPlan } from './motion'
 
 type Layout = {
   width: number
   height: number
   squarePositions: { x: number; y: number }[]
 }
+
+type Fx =
+  | { kind: 'idle' }
+  | {
+      kind: 'dice'
+      playerId: number
+      fromId: number
+      path: number[]
+      spin: DiceSpin
+    }
+  | {
+      kind: 'walk'
+      playerId: number
+      fromId: number
+      path: number[]
+      startMs: number
+      stepMs: number
+    }
+
+const WALK_STEP_MS = 200
 
 export type GameViewOptions = {
   seats?: MatchSeat[]
@@ -38,6 +67,8 @@ export class GameView {
   private boundClick: (e: MouseEvent) => void
   private boundKey: (e: KeyboardEvent) => void
   private aiTimer: number | null = null
+  private raf: number | null = null
+  private fx: Fx = { kind: 'idle' }
   private localPlayerId: number | null
   private onLocalAction: ((action: GameAction) => void) | null
   private runAiFlag: boolean
@@ -67,24 +98,26 @@ export class GameView {
 
   /** Apply authoritative state from LAN host. */
   setState(state: GameState): void {
+    const prev = this.state
     this.state = state
-    const rect = this.shell.getBoundingClientRect()
-    this.draw(rect.width, rect.height)
-    this.queueAi()
+    this.beginPresentation(prev, state)
   }
 
   destroy(): void {
     this.canvas.removeEventListener('click', this.boundClick)
     window.removeEventListener('keydown', this.boundKey)
     if (this.aiTimer !== null) window.clearTimeout(this.aiTimer)
+    if (this.raf !== null) window.cancelAnimationFrame(this.raf)
+    this.fx = { kind: 'idle' }
   }
 
   resize(cssWidth: number, cssHeight: number): void {
     this.layout = computeLayout(cssWidth, cssHeight, this.state.config)
-    this.draw(cssWidth, cssHeight)
+    this.draw(cssWidth, cssHeight, performance.now())
   }
 
   private canControlCurrent(): boolean {
+    if (this.fx.kind !== 'idle') return false
     const player = this.state.players[this.state.currentPlayerIndex]
     if (!player || player.isAi) return false
     if (this.localPlayerId == null) return true
@@ -96,26 +129,95 @@ export class GameView {
       this.onLocalAction(action)
       return
     }
+    const prev = this.state
     this.state = reduceGame(this.state, action)
-    if (this.runAiFlag) {
-      this.state = runAiUntilHuman(this.state)
+    this.beginPresentation(prev, this.state)
+  }
+
+  private beginPresentation(prev: GameState, next: GameState): void {
+    const plan = movementPlan(prev, next)
+    if (!plan) {
+      this.fx = { kind: 'idle' }
+      this.drawNow()
+      this.queueAi()
+      return
     }
+    const now = performance.now()
+    if (plan.dice) {
+      this.fx = {
+        kind: 'dice',
+        playerId: plan.playerId,
+        fromId: plan.fromId,
+        path: plan.path,
+        spin: createDiceSpin(plan.dice.result, plan.dice.maxDie, now)
+      }
+    } else {
+      this.fx = {
+        kind: 'walk',
+        playerId: plan.playerId,
+        fromId: plan.fromId,
+        path: plan.path,
+        startMs: now,
+        stepMs: WALK_STEP_MS
+      }
+    }
+    this.startLoop()
+  }
+
+  private startLoop(): void {
+    if (this.raf !== null) return
+    const tick = (now: number): void => {
+      this.advanceFx(now)
+      this.drawNow(now)
+      if (this.fx.kind === 'idle') {
+        this.raf = null
+        this.queueAi()
+        return
+      }
+      this.raf = window.requestAnimationFrame(tick)
+    }
+    this.raf = window.requestAnimationFrame(tick)
+  }
+
+  private advanceFx(now: number): void {
+    if (this.fx.kind === 'dice') {
+      if (diceProgress(this.fx.spin, now) < 1) return
+      if (this.fx.path.length === 0) {
+        this.fx = { kind: 'idle' }
+        return
+      }
+      this.fx = {
+        kind: 'walk',
+        playerId: this.fx.playerId,
+        fromId: this.fx.fromId,
+        path: this.fx.path,
+        startMs: now,
+        stepMs: WALK_STEP_MS
+      }
+      return
+    }
+    if (this.fx.kind === 'walk') {
+      const total = this.fx.path.length * this.fx.stepMs
+      if (now - this.fx.startMs >= total) this.fx = { kind: 'idle' }
+    }
+  }
+
+  private drawNow(now = performance.now()): void {
     const rect = this.shell.getBoundingClientRect()
-    this.draw(rect.width, rect.height)
-    this.queueAi()
+    this.draw(rect.width, rect.height, now)
   }
 
   private queueAi(): void {
     if (!this.runAiFlag || this.onLocalAction) return
+    if (this.fx.kind !== 'idle') return
     if (this.aiTimer !== null) window.clearTimeout(this.aiTimer)
     const player = this.state.players[this.state.currentPlayerIndex]
     if (!player?.isAi || this.state.phase === 'game_over') return
     this.aiTimer = window.setTimeout(() => {
-      this.state = runAiUntilHuman(this.state)
-      const rect = this.shell.getBoundingClientRect()
-      this.draw(rect.width, rect.height)
-      this.queueAi()
-    }, 350)
+      const action = chooseAiAction(this.state)
+      if (!action) return
+      this.dispatch(action)
+    }, 280)
   }
 
   private handleKey(e: KeyboardEvent): void {
@@ -130,8 +232,6 @@ export class GameView {
   }
 
   private handleClick(e: MouseEvent): void {
-    if (!this.canControlCurrent()) return
-
     const rect = this.canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
@@ -142,6 +242,8 @@ export class GameView {
       this.onExit()
       return
     }
+
+    if (!this.canControlCurrent()) return
 
     if (this.state.phase === 'roll' && hitRect(x, y, w / 2 - 70, h - 52, 140, 40)) {
       this.dispatch({ type: 'roll_dice' })
@@ -171,7 +273,8 @@ export class GameView {
         const pos = this.layout.squarePositions[idx >= 0 ? idx : id]
         if (!pos) continue
         if (hitRect(x, y, pos.x - squareSize / 2, pos.y - squareSize / 2, squareSize, squareSize)) {
-          if (this.state.phase === 'choose_path') this.dispatch({ type: 'choose_path', squareId: id })
+          if (this.state.phase === 'choose_path')
+            this.dispatch({ type: 'choose_path', squareId: id })
           else this.dispatch({ type: 'select_square', squareId: id })
           return
         }
@@ -221,17 +324,46 @@ export class GameView {
     }
   }
 
-  private draw(w: number, h: number): void {
+  private pieceXY(player: Player, layout: Layout, now: number): { x: number; y: number } {
+    const board = this.state.config.board
+    const squareSize = Math.max(40, Math.min(layout.width, layout.height) * 0.07)
+    const offset = player.id === 0 ? -12 : player.id === 1 ? 12 : player.id === 2 ? -22 : 22
+    const atSquare = (id: number): { x: number; y: number } => {
+      const p = posForId(layout, board, id)
+      return { x: p.x + offset, y: p.y + squareSize / 2 + 10 }
+    }
+    if (this.fx.kind !== 'idle' && this.fx.playerId === player.id) {
+      if (this.fx.kind === 'dice') return atSquare(this.fx.fromId)
+      const elapsed = Math.max(0, now - this.fx.startMs)
+      const idx = Math.min(this.fx.path.length - 1, Math.floor(elapsed / this.fx.stepMs))
+      const t = easeInOut(Math.min(1, (elapsed - idx * this.fx.stepMs) / this.fx.stepMs))
+      const fromId = idx <= 0 ? this.fx.fromId : this.fx.path[idx - 1]
+      const toId = this.fx.path[idx]
+      const a = atSquare(fromId)
+      const b = atSquare(toId)
+      return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) }
+    }
+    return atSquare(player.position)
+  }
+
+  private draw(w: number, h: number, now: number): void {
     const ctx = this.canvas.getContext('2d')
     if (!ctx || !this.layout) return
     ctx.save()
     ctx.clearRect(0, 0, w, h)
     drawBackground(ctx, w, h)
-    drawBoard(ctx, this.state, this.layout)
-    drawHud(ctx, this.state, w)
+    drawBoard(ctx, this.state, this.layout, (p) => this.pieceXY(p, this.layout!, now))
+    drawHud(ctx, this.state, w, this.fx)
     drawHand(ctx, this.state, w, h, getSelectableCardIds(this.state))
-    drawActionBar(ctx, this.state, w, h)
+    drawActionBar(
+      ctx,
+      this.state,
+      w,
+      h,
+      this.fx.kind === 'dice' ? 'rolling' : this.fx.kind === 'walk' ? 'moving' : null
+    )
     drawLog(ctx, this.state, w)
+    drawDiceOverlay(ctx, this.state, this.fx, w, h, now)
     ctx.restore()
   }
 }
@@ -246,7 +378,9 @@ function computeLayout(w: number, h: number, config: GameConfig): Layout {
     const marginY = h * 0.1
     const bw = w - marginX * 2
     const bh = h * 0.52
-    const byId = new Map(config.board.map((s, i) => [s.id, config.layout![i] ?? config.layout![s.id]]))
+    const byId = new Map(
+      config.board.map((s, i) => [s.id, config.layout![i] ?? config.layout![s.id]])
+    )
     const squarePositions = config.board.map((s) => {
       const p = byId.get(s.id) ?? { x: 0.5, y: 0.5 }
       return { x: marginX + p.x * bw, y: marginY + 36 + p.y * bh }
@@ -301,12 +435,21 @@ function squareFill(square: { squareType: string; terrain: string }): string {
   }
 }
 
-function posForId(layout: Layout, board: GameState['config']['board'], id: number): { x: number; y: number } {
+function posForId(
+  layout: Layout,
+  board: GameState['config']['board'],
+  id: number
+): { x: number; y: number } {
   const idx = board.findIndex((s) => s.id === id)
   return layout.squarePositions[idx >= 0 ? idx : id]
 }
 
-function drawBoard(ctx: CanvasRenderingContext2D, state: GameState, layout: Layout): void {
+function drawBoard(
+  ctx: CanvasRenderingContext2D,
+  state: GameState,
+  layout: Layout,
+  pieceXY: (player: Player) => { x: number; y: number }
+): void {
   const { squarePositions } = layout
   const board = state.config.board
   const squareSize = Math.max(40, Math.min(layout.width, layout.height) * 0.07)
@@ -343,7 +486,7 @@ function drawBoard(ctx: CanvasRenderingContext2D, state: GameState, layout: Layo
     const highlight = pathIds.has(square.id)
 
     ctx.fillStyle = squareFill(square)
-    ctx.strokeStyle = highlight ? '#e8c36a' : ownerColor ?? 'rgba(255,255,255,0.25)'
+    ctx.strokeStyle = highlight ? '#e8c36a' : (ownerColor ?? 'rgba(255,255,255,0.25)')
     ctx.lineWidth = highlight ? 3 : ownerColor ? 3 : 1
     roundRect(ctx, pos.x - squareSize / 2, pos.y - squareSize / 2, squareSize, squareSize, 6)
     ctx.fill()
@@ -364,21 +507,27 @@ function drawBoard(ctx: CanvasRenderingContext2D, state: GameState, layout: Layo
   }
 
   for (const player of state.players) {
-    const pos = posForId(layout, board, player.position)
-    const offset = player.id === 0 ? -12 : 12
+    const pos = pieceXY(player)
     ctx.beginPath()
     ctx.fillStyle = player.color
-    ctx.arc(pos.x + offset, pos.y + squareSize / 2 + 10, 8, 0, Math.PI * 2)
+    ctx.arc(pos.x, pos.y, 8, 0, Math.PI * 2)
     ctx.fill()
     ctx.fillStyle = '#fff'
     ctx.font = 'bold 9px system-ui,sans-serif'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText(player.name.slice(0, 1).toUpperCase(), pos.x + offset, pos.y + squareSize / 2 + 10)
+    ctx.fillText(player.name.slice(0, 1).toUpperCase(), pos.x, pos.y)
   }
 }
 
-function drawHud(ctx: CanvasRenderingContext2D, state: GameState, w: number): void {
+function fxPhaseLabel(state: GameState, fx: Fx): string {
+  const name = state.players[state.currentPlayerIndex]?.name ?? ''
+  if (fx.kind === 'dice') return `${name} — rolling`
+  if (fx.kind === 'walk') return `${name} — moving`
+  return getPhaseLabel(state)
+}
+
+function drawHud(ctx: CanvasRenderingContext2D, state: GameState, w: number, fx: Fx): void {
   const panelH = 20 + state.players.length * 18
   ctx.fillStyle = 'rgba(12,16,22,0.88)'
   roundRect(ctx, 12, 12, w - 24, Math.max(78, panelH + 36), 10)
@@ -400,13 +549,10 @@ function drawHud(ctx: CanvasRenderingContext2D, state: GameState, w: number): vo
   ctx.fillStyle = '#e8eaed'
   ctx.textAlign = 'center'
   ctx.font = '14px system-ui,sans-serif'
-  ctx.fillText(`${state.config.mapName} — ${getPhaseLabel(state)}`, w / 2, 24)
+  ctx.fillText(`${state.config.mapName} — ${fxPhaseLabel(state, fx)}`, w / 2, 24)
   ctx.fillStyle = 'rgba(255,255,255,0.55)'
   ctx.font = '12px system-ui,sans-serif'
   ctx.fillText(`Goal ${state.config.targetMagic}G · ${state.players.length}p`, w / 2, 46)
-  if (state.lastRoll !== null && state.phase !== 'roll') {
-    ctx.fillText(`Last roll: ${state.lastRoll}`, w / 2, 62)
-  }
 
   drawButton(ctx, w - 110, 12, 96, 32, 'Menu (Esc)', false)
 }
@@ -455,9 +601,17 @@ function drawActionBar(
   ctx: CanvasRenderingContext2D,
   state: GameState,
   w: number,
-  h: number
+  h: number,
+  motion: 'rolling' | 'moving' | null
 ): void {
   const y = h - 52
+  if (motion) {
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'
+    ctx.font = '13px system-ui,sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(motion === 'rolling' ? 'Rolling…' : 'Moving…', w / 2, y + 20)
+    return
+  }
   const current = state.players[state.currentPlayerIndex]
   if (current?.isAi) {
     ctx.fillStyle = 'rgba(255,255,255,0.6)'
@@ -540,6 +694,26 @@ function drawActionBar(
     ctx.textAlign = 'center'
     ctx.fillText('Click a highlighted card', w / 2, y - 16)
   }
+}
+
+function drawDiceOverlay(
+  ctx: CanvasRenderingContext2D,
+  state: GameState,
+  fx: Fx,
+  w: number,
+  h: number,
+  now: number
+): void {
+  if (fx.kind === 'dice') {
+    ctx.fillStyle = 'rgba(8, 10, 14, 0.28)'
+    ctx.fillRect(0, 0, w, h)
+    const rot = diceRotation(fx.spin, now)
+    const size = Math.min(120, Math.min(w, h) * 0.18)
+    drawDie(ctx, w / 2, h * 0.4, size, fx.spin.result, fx.spin.maxDie, rot)
+    return
+  }
+  if (state.lastRoll == null || state.phase === 'roll') return
+  drawDie(ctx, w / 2, 78, 36, state.lastRoll, state.config.maxDie, { x: -0.42, y: 0.58, z: 0.06 })
 }
 
 function drawLog(ctx: CanvasRenderingContext2D, state: GameState, w: number): void {

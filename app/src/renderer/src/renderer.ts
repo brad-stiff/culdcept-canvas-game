@@ -191,6 +191,7 @@ function initMenu(): void {
   const librarySearch = document.getElementById('library-search')
   const libraryKind = document.getElementById('library-kind')
   const libraryElement = document.getElementById('library-element')
+  const librarySource = document.getElementById('library-source')
   const btnLibraryBack = document.getElementById('btn-library-back')
   const screenDeck = document.getElementById('screen-deck')
   const deckCatalog = document.getElementById('deck-catalog')
@@ -200,6 +201,7 @@ function initMenu(): void {
   const deckSaved = document.getElementById('deck-saved')
   const deckSearch = document.getElementById('deck-search')
   const deckKind = document.getElementById('deck-kind')
+  const deckIncludeRevolt = document.getElementById('deck-include-revolt')
   const btnDeckSave = document.getElementById('btn-deck-save')
   const btnDeckNew = document.getElementById('btn-deck-new')
   const btnDeckDelete = document.getElementById('btn-deck-delete')
@@ -237,6 +239,7 @@ function initMenu(): void {
     !(librarySearch instanceof HTMLInputElement) ||
     !(libraryKind instanceof HTMLSelectElement) ||
     !(libraryElement instanceof HTMLSelectElement) ||
+    !(librarySource instanceof HTMLSelectElement) ||
     !(btnLibraryBack instanceof HTMLButtonElement) ||
     !(deckCatalog instanceof HTMLElement) ||
     !(deckBook instanceof HTMLElement) ||
@@ -245,6 +248,7 @@ function initMenu(): void {
     !(deckSaved instanceof HTMLSelectElement) ||
     !(deckSearch instanceof HTMLInputElement) ||
     !(deckKind instanceof HTMLSelectElement) ||
+    !(deckIncludeRevolt instanceof HTMLInputElement) ||
     !(btnDeckSave instanceof HTMLButtonElement) ||
     !(btnDeckNew instanceof HTMLButtonElement) ||
     !(btnDeckDelete instanceof HTMLButtonElement) ||
@@ -469,6 +473,7 @@ function initMenu(): void {
     searchInput: librarySearch,
     kindSelect: libraryKind,
     elementSelect: libraryElement,
+    sourceSelect: librarySource,
     backBtn: btnLibraryBack,
     onBack: () => {
       hideAllScreens()
@@ -485,6 +490,7 @@ function initMenu(): void {
     savedSelect: deckSaved,
     searchInput: deckSearch,
     kindSelect: deckKind,
+    includeRevolt: deckIncludeRevolt,
     btnSave: btnDeckSave,
     btnNew: btnDeckNew,
     btnDelete: btnDeckDelete,

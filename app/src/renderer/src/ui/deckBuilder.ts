@@ -1,4 +1,4 @@
-import { filterSagaCards, getSagaCatalog } from '../../../shared/cards/catalog'
+import { filterCards, getCardById } from '../../../shared/cards/catalog'
 import type { SagaCard, SagaCardKind } from '../../../shared/cards/types'
 import { BOOK_LIMITS, validateBookCatalogIds } from '../../../shared/game/matchCards'
 import { deleteBook, listSavedBooks, saveBook, type SavedBook } from './books'
@@ -9,9 +9,7 @@ export type DeckBuilderController = {
 }
 
 function counts(ids: string[]): { creatures: number; items: number; spells: number } {
-  const cards = ids
-    .map((id) => getSagaCatalog().cards.find((c) => c.id === id))
-    .filter((c): c is SagaCard => Boolean(c))
+  const cards = ids.map((id) => getCardById(id)).filter((c): c is SagaCard => Boolean(c))
   return {
     creatures: cards.filter((c) => c.kind === 'creature').length,
     items: cards.filter((c) => c.kind === 'item').length,
@@ -34,6 +32,7 @@ export function createDeckBuilderController(opts: {
   savedSelect: HTMLSelectElement
   searchInput: HTMLInputElement
   kindSelect: HTMLSelectElement
+  includeRevolt: HTMLInputElement
   btnSave: HTMLButtonElement
   btnNew: HTMLButtonElement
   btnDelete: HTMLButtonElement
@@ -75,7 +74,7 @@ export function createDeckBuilderController(opts: {
     const list = document.createElement('ul')
     list.className = 'deck-book-list'
     for (const id of selectedIds) {
-      const card = getSagaCatalog().cards.find((x) => x.id === id)
+      const card = getCardById(id)
       if (!card) continue
       const li = document.createElement('li')
       const btn = document.createElement('button')
@@ -95,7 +94,8 @@ export function createDeckBuilderController(opts: {
   function renderCatalog(): void {
     const kind = opts.kindSelect.value as SagaCardKind | 'all'
     const query = opts.searchInput.value
-    const cards = filterSagaCards({ kind, element: 'all', query })
+    const source = opts.includeRevolt.checked ? 'all' : 'culdcept-saga'
+    const cards = filterCards({ kind, element: 'all', query, source })
     opts.catalogEl.innerHTML = ''
     const list = document.createElement('ul')
     list.className = 'deck-catalog-list'
@@ -138,6 +138,7 @@ export function createDeckBuilderController(opts: {
     selectedIds = [...book.catalogIds]
     opts.nameInput.value = book.name
     opts.savedSelect.value = book.id
+    opts.includeRevolt.checked = book.catalogIds.some((id) => id.startsWith('revolt-'))
     setStatus(`Loaded “${book.name}”.`, false)
     renderAll()
   }
@@ -147,6 +148,7 @@ export function createDeckBuilderController(opts: {
     selectedIds = []
     opts.nameInput.value = 'My Book'
     opts.savedSelect.value = ''
+    opts.includeRevolt.checked = false
     setStatus('New book — pick 34 creatures, 8 items, 8 spells.', false)
     renderAll()
   }
@@ -154,6 +156,7 @@ export function createDeckBuilderController(opts: {
   opts.backBtn.addEventListener('click', () => opts.onBack())
   opts.searchInput.addEventListener('input', () => renderCatalog())
   opts.kindSelect.addEventListener('change', () => renderCatalog())
+  opts.includeRevolt.addEventListener('change', () => renderCatalog())
   opts.savedSelect.addEventListener('change', () => {
     const id = opts.savedSelect.value
     if (!id) return

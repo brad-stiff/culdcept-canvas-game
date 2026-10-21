@@ -1,9 +1,10 @@
 import type { GameState, MatchCard } from './types'
 
 function globalTexts(state: GameState): string[] {
-  return state.territories
+  const fromCreatures = state.territories
     .filter((t) => t.creature.keywords.includes('global'))
     .map((t) => t.creature.abilityText)
+  return [...fromCreatures, ...(state.worldTexts ?? [])]
 }
 
 export function globalExtraDraw(state: GameState): boolean {
@@ -19,11 +20,17 @@ export function globalDefenderAttacksFirst(state: GameState): boolean {
 }
 
 export function globalDisableTerritoryAbility(state: GameState): boolean {
-  return globalTexts(state).some((t) => /cannot use territory abilities/i.test(t))
+  return globalTexts(state).some((t) =>
+    /cannot use territory abilities|abilities do not activate|abilities disabled/i.test(t)
+  )
 }
 
 export function globalIgnoreLandLimits(state: GameState): boolean {
-  return globalTexts(state).some((t) => /requirements for summoning|other than magic cost are ignored/i.test(t))
+  return globalTexts(state).some((t) =>
+    /requirements for summoning|other than magic cost are ignored|costs besides magic are ignored/i.test(
+      t
+    )
+  )
 }
 
 export function globalBlockTransform(state: GameState): boolean {

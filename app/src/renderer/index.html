@@ -125,6 +125,11 @@
               <option value="air">Air</option>
               <option value="dual">Dual</option>
             </select>
+            <select id="library-source" aria-label="Game">
+              <option value="culdcept-saga">Saga</option>
+              <option value="culdcept-revolt">Revolt</option>
+              <option value="all">All games</option>
+            </select>
           </div>
 
           <div class="library-layout">
@@ -166,6 +171,10 @@
               <option value="item">Items</option>
               <option value="spell">Spells</option>
             </select>
+            <label class="deck-include-revolt">
+              <input id="deck-include-revolt" type="checkbox" />
+              Include Revolt
+            </label>
           </div>
           <p id="deck-status" class="menu-hint" role="status"></p>
           <div class="deck-layout">
