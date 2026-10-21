@@ -4,13 +4,17 @@ import {
   pathChoices,
   squareById,
   territoryAt,
+  transformCost,
   walkPath
 } from './board'
 import { resolveBattleFromState } from './combat'
-import { tollAmount, totalMagic } from './economy'
+import { symbolLevelTotal, tollAmount, totalMagic } from './economy'
 import {
+  globalBlockTransform,
   globalDisableTerritoryAbility,
   globalExtraDraw,
+  globalIgnoreLandLimits,
+  globalUniqueInPlay,
   moveDisabledByGlobal
 } from './globals'
 import { getMapConfig } from './maps'
@@ -141,7 +145,12 @@ export function createInitialState(
     throw new Error('Free Battle requires 2–4 players')
   }
 
-  const config = getMapConfig(options.mapId ?? 'colosseum-i')
+  const source = getMapConfig(options.mapId ?? 'colosseum-i')
+  const config = {
+    ...source,
+    board: source.board.map((s) => ({ ...s, exits: [...s.exits] })),
+    layout: source.layout?.map((p) => ({ ...p }))
+  }
   const players = normalized.map((seat, id) =>
     makePlayer(seat, id, PLAYER_COLORS[id] ?? '#888', config.startMagic, config.handLimit)
   )
@@ -204,8 +213,18 @@ function endTurn(state: GameState): GameState {
   })
 }
 
-function afterLanding(state: GameState, player: Player): GameState {
+function afterLanding(state: GameState, player: Player, skipWarp = false): GameState {
   const square = squareById(state.config.board, player.position)
+  if (square.squareType === 'warp' && !skipWarp && square.warpTo != null) {
+    const dest = squareById(state.config.board, square.warpTo)
+    const warped = { ...player, position: dest.id }
+    const logged = {
+      ...replacePlayer(state, warped),
+      log: appendLog(state, `${player.name} warps from ${square.name} to ${dest.name}.`)
+    }
+    return afterLanding(logged, warped, true)
+  }
+
   let next: GameState = {
     ...replacePlayer(state, player),
     phase: 'landed',
@@ -230,6 +249,24 @@ function afterLanding(state: GameState, player: Player): GameState {
   }
 
   return withWinner(next)
+}
+
+function canSummonCreatureType(state: GameState, card: MatchCard): boolean {
+  if (globalUniqueInPlay(state) && state.territories.some((t) => t.creature.catalogId === card.catalogId)) {
+    return false
+  }
+  return true
+}
+
+function canSummonOnLand(
+  state: GameState,
+  card: MatchCard,
+  terrain: GameState['config']['board'][0]['terrain']
+): boolean {
+  if (card.kind !== 'creature') return false
+  if (!canSummonCreatureType(state, card)) return false
+  if (globalIgnoreLandLimits(state)) return true
+  return canPlaceOnTerrain(card, terrain)
 }
 
 function applyWalkResult(
@@ -343,7 +380,7 @@ function placeCreature(state: GameState, cardId: string): GameState {
   }
   const { player: without, card } = removeFromHand(player, cardId)
   if (card.kind !== 'creature' || without.magic < card.cost) return state
-  if (!canPlaceOnTerrain(card, square.terrain)) return state
+  if (!canSummonOnLand(state, card, square.terrain)) return state
   player = { ...without, magic: without.magic - card.cost }
   const territories = [
     ...cloneTerritories(state.territories),
@@ -517,6 +554,106 @@ function shrinePray(state: GameState): GameState {
   })
 }
 
+function templePray(state: GameState): GameState {
+  const idx = state.currentPlayerIndex
+  let player = clonePlayer(state.players[idx])
+  const payout = symbolLevelTotal(state, player.id) * 20
+  player = { ...player, magic: player.magic + payout }
+  return withWinner(
+    endTurn({
+      ...replacePlayer(state, player),
+      log: appendLog(state, `${player.name} visits the Temple (+${payout}G).`)
+    })
+  )
+}
+
+function fortuneTeller(state: GameState): GameState {
+  const idx = state.currentPlayerIndex
+  let player = clonePlayer(state.players[idx])
+  const roll = Math.random()
+  if (roll < 1 / 3) {
+    player = { ...player, magic: player.magic + 80 }
+    return withWinner(
+      endTurn({
+        ...replacePlayer(state, player),
+        log: appendLog(state, `${player.name} consults the Fortune-Teller (+80G).`)
+      })
+    )
+  }
+  if (roll < 2 / 3) {
+    const drawn = drawOne(player, state.config.handLimit)
+    player = drawn.player
+    return endTurn({
+      ...replacePlayer(state, player),
+      log: appendLog(
+        state,
+        drawn.drew
+          ? `${player.name} consults the Fortune-Teller and draws ${drawn.drew.name}.`
+          : `${player.name} consults the Fortune-Teller.`
+      )
+    })
+  }
+  const castle = state.config.board.find((s) => s.squareType === 'castle')
+  player = { ...player, position: castle?.id ?? 0 }
+  return endTurn({
+    ...replacePlayer(state, player),
+    log: appendLog(state, `${player.name} is sent to the Castle (no lap).`)
+  })
+}
+
+function transformLand(state: GameState): GameState {
+  if (globalBlockTransform(state)) return state
+  const idx = state.currentPlayerIndex
+  let player = clonePlayer(state.players[idx])
+  const squareId = state.selectedSquareId ?? player.position
+  const terr = territoryAt(state, squareId)
+  if (!terr || terr.ownerId !== player.id) return state
+  const el = terr.creature.element
+  if (!el || el === 'neutral' || el === 'dual') return state
+  const square = squareById(state.config.board, squareId)
+  if (square.terrain === el) return state
+  const cost = transformCost(terr.level)
+  if (player.magic < cost) return state
+  player = { ...player, magic: player.magic - cost }
+  const board = state.config.board.map((s) =>
+    s.id === squareId ? { ...s, terrain: el, exits: [...s.exits] } : { ...s, exits: [...s.exits] }
+  )
+  return withWinner(
+    endTurn({
+      ...replacePlayer(state, player),
+      config: { ...state.config, board },
+      log: appendLog(state, `${player.name} transforms ${square.name} to ${el} (−${cost}G).`)
+    })
+  )
+}
+
+function exchangeCreatures(state: GameState, destId: number): GameState {
+  if (moveDisabledByGlobal(state)) return state
+  const idx = state.currentPlayerIndex
+  const player = clonePlayer(state.players[idx])
+  const fromId = state.selectedSquareId ?? player.position
+  const a = territoryAt(state, fromId)
+  const b = territoryAt(state, destId)
+  if (!a || !b || a.ownerId !== player.id || b.ownerId !== player.id) return state
+  if (a.squareId === b.squareId) return state
+  const territories = cloneTerritories(state.territories).map((t) => {
+    if (t.squareId === fromId) return { ...t, creature: cloneMatchCard(b.creature) }
+    if (t.squareId === destId) return { ...t, creature: cloneMatchCard(a.creature) }
+    return t
+  })
+  return withWinner(
+    endTurn({
+      ...replacePlayer(state, player),
+      territories,
+      pendingAction: null,
+      log: appendLog(
+        state,
+        `${player.name} exchanges ${a.creature.name} with ${b.creature.name}.`
+      )
+    })
+  )
+}
+
 function castSpell(state: GameState, cardId: string): GameState {
   const idx = state.currentPlayerIndex
   const player = clonePlayer(state.players[idx])
@@ -546,17 +683,31 @@ export function getAvailableActions(state: GameState): LandedAction[] {
     return actions
   }
 
+  if (square.squareType === 'temple') {
+    actions.push('temple')
+    actions.push('skip')
+    return actions
+  }
+
+  if (square.squareType === 'fortune') {
+    actions.push('fortune')
+    actions.push('skip')
+    return actions
+  }
+
   if (square.squareType === 'land' && !terr) {
     if (
       player.hand.some(
-        (c) => c.kind === 'creature' && c.cost <= player.magic && canPlaceOnTerrain(c, square.terrain)
+        (c) => c.kind === 'creature' && c.cost <= player.magic && canSummonOnLand(state, c, square.terrain)
       )
     ) {
       actions.push('place')
     }
     actions.push('skip')
   } else if (square.squareType === 'land' && terr && terr.ownerId !== player.id) {
-    if (player.hand.some((c) => canInvadeWith(c))) actions.push('battle')
+    if (player.hand.some((c) => canInvadeWith(c) && canSummonCreatureType(state, c))) {
+      actions.push('battle')
+    }
     if (player.magic >= tollAmount(state, squareId)) actions.push('pay_toll')
     actions.push('skip')
   } else if (square.squareType === 'land' && terr && terr.ownerId === player.id) {
@@ -577,6 +728,23 @@ export function getAvailableActions(state: GameState): LandedAction[] {
     ) {
       actions.push('territory_ability')
     }
+    if (
+      !moveDisabledByGlobal(state) &&
+      state.territories.some((t) => t.ownerId === player.id && t.squareId !== squareId)
+    ) {
+      actions.push('exchange')
+    }
+    const el = terr.creature.element
+    if (
+      !globalBlockTransform(state) &&
+      el &&
+      el !== 'neutral' &&
+      el !== 'dual' &&
+      el !== square.terrain &&
+      player.magic >= transformCost(terr.level)
+    ) {
+      actions.push('transform')
+    }
     actions.push('skip')
   } else {
     actions.push('skip')
@@ -596,12 +764,14 @@ export function getSelectableCardIds(state: GameState): string[] {
   if (state.phase === 'select_creature' && state.pendingAction === 'place') {
     return player.hand
       .filter(
-        (c) => c.kind === 'creature' && c.cost <= player.magic && canPlaceOnTerrain(c, square.terrain)
+        (c) => c.kind === 'creature' && c.cost <= player.magic && canSummonOnLand(state, c, square.terrain)
       )
       .map((c) => c.instanceId)
   }
   if (state.phase === 'select_creature' && state.pendingAction === 'battle') {
-    return player.hand.filter((c) => canInvadeWith(c)).map((c) => c.instanceId)
+    return player.hand
+      .filter((c) => canInvadeWith(c) && canSummonCreatureType(state, c))
+      .map((c) => c.instanceId)
   }
   if (state.phase === 'select_item') {
     const attacker = player.hand.find((c) => c.instanceId === state.pendingAttackerId)
@@ -658,10 +828,16 @@ export function getPathChoices(state: GameState): number[] {
 }
 
 export function getMoveTargets(state: GameState): number[] {
-  if (state.phase !== 'select_square' || state.pendingAction !== 'move_creature') return []
+  if (state.phase !== 'select_square') return []
   const player = state.players[state.currentPlayerIndex]
   const squareId = state.selectedSquareId ?? player.position
-  return emptyAdjacentLands(state, squareId)
+  if (state.pendingAction === 'move_creature') {
+    return emptyAdjacentLands(state, squareId)
+  }
+  if (state.pendingAction === 'exchange') {
+    return state.territories.filter((t) => t.ownerId === player.id && t.squareId !== squareId).map((t) => t.squareId)
+  }
+  return []
 }
 
 function moveCreatureTo(state: GameState, destId: number): GameState {
@@ -720,6 +896,7 @@ export function reduceGame(state: GameState, action: GameAction): GameState {
     case 'select_square':
       if (state.phase !== 'select_square') return state
       if (state.pendingAction === 'move_creature') return moveCreatureTo(state, action.squareId)
+      if (state.pendingAction === 'exchange') return exchangeCreatures(state, action.squareId)
       return state
     case 'choose_action': {
       if (state.phase !== 'landed' && state.phase !== 'territory_menu') return state
@@ -734,12 +911,18 @@ export function reduceGame(state: GameState, action: GameAction): GameState {
       if (action.action === 'pay_toll') return payToll(state)
       if (action.action === 'level_up') return levelUp(state)
       if (action.action === 'shrine') return shrinePray(state)
+      if (action.action === 'temple') return templePray(state)
+      if (action.action === 'fortune') return fortuneTeller(state)
       if (action.action === 'cast_spell') {
         return { ...state, phase: 'select_spell', pendingAction: 'cast_spell' }
       }
       if (action.action === 'move_creature') {
         return { ...state, phase: 'select_square', pendingAction: 'move_creature' }
       }
+      if (action.action === 'exchange') {
+        return { ...state, phase: 'select_square', pendingAction: 'exchange' }
+      }
+      if (action.action === 'transform') return transformLand(state)
       if (action.action === 'territory_ability') return useTerritoryAbility(state)
       if (action.action === 'skip') return endTurn(state)
       return state

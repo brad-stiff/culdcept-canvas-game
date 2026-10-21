@@ -1,6 +1,6 @@
-import { emptyAdjacentLands, squareById, territoryAt } from './board'
+import { emptyAdjacentLands, squareById, territoryAt, undirectedNeighbors } from './board'
 import { estimateInvasionFavorable } from './combat'
-import { tollAmount } from './economy'
+import { symbolLevelTotal, tollAmount } from './economy'
 import { spellHasHandledEffect } from './spells'
 import {
   canRoll,
@@ -54,6 +54,19 @@ export function chooseAiAction(state: GameState): GameAction | null {
     const player = state.players[state.currentPlayerIndex]
     const fromId = state.selectedSquareId ?? player.position
     const terr = territoryAt(state, fromId)
+    if (state.pendingAction === 'exchange' && terr) {
+      const better = targets.find((id) => {
+        const other = territoryAt(state, id)
+        if (!other) return false
+        const here = squareById(state.config.board, fromId)
+        const dest = squareById(state.config.board, id)
+        const thisGains = terr.creature.element === dest.terrain && terr.creature.element !== here.terrain
+        const otherGains =
+          other.creature.element === here.terrain && other.creature.element !== dest.terrain
+        return thisGains || otherGains
+      })
+      return { type: 'select_square', squareId: better ?? targets[0] }
+    }
     const match = targets.find((id) => {
       const sq = squareById(state.config.board, id)
       return terr?.creature.element === sq.terrain
@@ -127,6 +140,25 @@ export function chooseAiAction(state: GameState): GameAction | null {
       if (better) return { type: 'choose_action', action: 'move_creature' }
     }
 
+    if (actions.includes('exchange') && terr) {
+      const neighbors = undirectedNeighbors(state.config.board, squareId)
+      const better = state.territories.some((t) => {
+        if (t.ownerId !== player.id || t.squareId === squareId) return false
+        if (!neighbors.includes(t.squareId)) return false
+        const otherSq = squareById(state.config.board, t.squareId)
+        const thisGains =
+          terr.creature.element === otherSq.terrain && terr.creature.element !== square.terrain
+        const otherGains =
+          t.creature.element === square.terrain && t.creature.element !== otherSq.terrain
+        return thisGains || otherGains
+      })
+      if (better) return { type: 'choose_action', action: 'exchange' }
+    }
+
+    if (actions.includes('transform')) {
+      return { type: 'choose_action', action: 'transform' }
+    }
+
     if (actions.includes('territory_ability') && terr && player.magic > 200) {
       if (territoryAbilityHasHandledEffect(terr.creature.abilityText) || player.magic > 400) {
         return { type: 'choose_action', action: 'territory_ability' }
@@ -139,7 +171,19 @@ export function chooseAiAction(state: GameState): GameAction | null {
       if (flush || pressure) return { type: 'choose_action', action: 'level_up' }
     }
 
+    if (actions.includes('temple') && symbolLevelTotal(state, player.id) > 0) {
+      return { type: 'choose_action', action: 'temple' }
+    }
+
+    if (actions.includes('fortune') && player.magic < 200) {
+      return { type: 'choose_action', action: 'fortune' }
+    }
+
     if (actions.includes('shrine')) return { type: 'choose_action', action: 'shrine' }
+
+    if (actions.includes('temple')) return { type: 'choose_action', action: 'temple' }
+
+    if (actions.includes('fortune')) return { type: 'choose_action', action: 'fortune' }
 
     if (actions.includes('cast_spell') && player.magic > 200) {
       const hasReal = player.hand.some(

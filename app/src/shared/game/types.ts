@@ -2,7 +2,7 @@ import type { SagaCardElement, SagaCardKind } from '../cards/types'
 
 export type Element = Exclude<SagaCardElement, 'dual' | null> | 'dual'
 
-export type SquareType = 'castle' | 'fort' | 'shrine' | 'land'
+export type SquareType = 'castle' | 'fort' | 'shrine' | 'land' | 'warp' | 'temple' | 'fortune'
 
 export type Square = {
   id: number
@@ -13,6 +13,8 @@ export type Square = {
   landValue: number
   /** Next squares in travel order (graph board). */
   exits: number[]
+  /** Paired warp destination (warp squares only). */
+  warpTo?: number
 }
 
 export type Keyword =
@@ -112,6 +114,10 @@ export type LandedAction =
   | 'shrine'
   | 'move_creature'
   | 'territory_ability'
+  | 'temple'
+  | 'fortune'
+  | 'exchange'
+  | 'transform'
   | 'skip'
 
 export type BattleOutcome = {

@@ -129,6 +129,10 @@ export function levelUpCost(level: number): number {
   return 100 * level
 }
 
+export function transformCost(level: number): number {
+  return 100 * level
+}
+
 export function emptyAdjacentLands(state: GameState, squareId: number): number[] {
   return undirectedNeighbors(state.config.board, squareId).filter((id) => {
     const sq = squareById(state.config.board, id)

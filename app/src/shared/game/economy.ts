@@ -15,10 +15,13 @@ export function countSymbols(state: GameState, playerId: number): SymbolCounts {
   return counts
 }
 
-export function symbolMagic(state: GameState, playerId: number): number {
+export function symbolLevelTotal(state: GameState, playerId: number): number {
   const c = countSymbols(state, playerId)
-  const total = c.fire + c.water + c.earth + c.air + c.neutral
-  return total * state.config.symbolValue
+  return c.fire + c.water + c.earth + c.air + c.neutral
+}
+
+export function symbolMagic(state: GameState, playerId: number): number {
+  return symbolLevelTotal(state, playerId) * state.config.symbolValue
 }
 
 /** Liquid magic + symbol conversion toward the Free Battle goal. */

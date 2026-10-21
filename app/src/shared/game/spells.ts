@@ -1,5 +1,6 @@
-import type { GameState, MatchCard, Player } from './types'
+import { reducedAbilityDamage } from './globals'
 import { cloneHand, cloneMatchCard } from './matchCards'
+import type { GameState, MatchCard, Player } from './types'
 
 export type SpellResult = {
   state: GameState
@@ -148,7 +149,7 @@ export function tryResolveSpell(state: GameState, caster: Player, spell: MatchCa
   // Flat damage to creatures
   const dmg = text.match(/deals?\s+(\d+)\s+damage/i)
   if (dmg) {
-    const amount = Number(dmg[1])
+    const amount = reducedAbilityDamage(state, Number(dmg[1]))
     const allEnemy = /all\s+enemy|each\s+enemy|every\s+enemy/i.test(text)
     const territories = state.territories
       .map((t) => {

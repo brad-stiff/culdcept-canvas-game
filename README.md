@@ -2,7 +2,7 @@
 
 Electron + Vite + TypeScript Free Battle clone of **Culdcept Saga** (personal / at-home use). Application code lives in the [`app`](./app) workspace.
 
-**Phase 3B (current):** Graph boards with fork choice, **Crossroads** X-map, Territory Ability / Move Creature, and a small Global Ability set — on top of 3A keywords, spells, deck builder, and LAN. Still **2–4** cepters.
+**Phase 3C (current):** Temple / warp / fortune squares, **Temple Grounds**, Exchange + land transform, and extra globals (Clay / Gold / Jade / Marble) — on top of 3B graph boards and 3A keywords. Still **2–4** cepters. Remaining fidelity (Evolve, bridges, full idol set) is follow-up; **Phase 4** is cross-game cards.
 
 ## Prerequisites
 

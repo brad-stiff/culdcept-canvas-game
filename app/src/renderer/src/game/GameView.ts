@@ -288,6 +288,19 @@ function terrainColor(terrain: string): string {
   }
 }
 
+function squareFill(square: { squareType: string; terrain: string }): string {
+  switch (square.squareType) {
+    case 'warp':
+      return '#4a3568'
+    case 'temple':
+      return '#6b5420'
+    case 'fortune':
+      return '#2a5a5a'
+    default:
+      return terrainColor(square.terrain)
+  }
+}
+
 function posForId(layout: Layout, board: GameState['config']['board'], id: number): { x: number; y: number } {
   const idx = board.findIndex((s) => s.id === id)
   return layout.squarePositions[idx >= 0 ? idx : id]
@@ -329,7 +342,7 @@ function drawBoard(ctx: CanvasRenderingContext2D, state: GameState, layout: Layo
     const ownerColor = territory ? PLAYER_COLORS[territory.ownerId] : null
     const highlight = pathIds.has(square.id)
 
-    ctx.fillStyle = terrainColor(square.terrain)
+    ctx.fillStyle = squareFill(square)
     ctx.strokeStyle = highlight ? '#e8c36a' : ownerColor ?? 'rgba(255,255,255,0.25)'
     ctx.lineWidth = highlight ? 3 : ownerColor ? 3 : 1
     roundRect(ctx, pos.x - squareSize / 2, pos.y - squareSize / 2, squareSize, squareSize, 6)
@@ -343,6 +356,9 @@ function drawBoard(ctx: CanvasRenderingContext2D, state: GameState, layout: Layo
     if (square.squareType === 'castle') ctx.fillText('Castle', pos.x, pos.y)
     else if (square.squareType === 'fort') ctx.fillText('Fort', pos.x, pos.y)
     else if (square.squareType === 'shrine') ctx.fillText('Shrine', pos.x, pos.y)
+    else if (square.squareType === 'warp') ctx.fillText('Warp', pos.x, pos.y)
+    else if (square.squareType === 'temple') ctx.fillText('Temple', pos.x, pos.y)
+    else if (square.squareType === 'fortune') ctx.fillText('Fortune', pos.x, pos.y)
     else if (territory) ctx.fillText(`L${territory.level}`, pos.x, pos.y)
     else ctx.fillText(square.terrain[0]!.toUpperCase(), pos.x, pos.y)
   }
@@ -483,7 +499,13 @@ function drawActionBar(
     ctx.fillStyle = 'rgba(255,255,255,0.7)'
     ctx.font = '12px system-ui,sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText('Click a highlighted land to move', w / 2, y - 16)
+    ctx.fillText(
+      state.pendingAction === 'exchange'
+        ? 'Click a highlighted land to exchange'
+        : 'Click a highlighted land to move',
+      w / 2,
+      y - 16
+    )
     return
   }
 
@@ -496,6 +518,10 @@ function drawActionBar(
     shrine: 'Pray',
     move_creature: 'Move',
     territory_ability: 'Ability',
+    temple: 'Temple',
+    fortune: 'Fortune',
+    exchange: 'Exchange',
+    transform: 'Transform',
     skip: 'Skip'
   }
   let i = 0

@@ -22,6 +22,30 @@ export function globalDisableTerritoryAbility(state: GameState): boolean {
   return globalTexts(state).some((t) => /cannot use territory abilities/i.test(t))
 }
 
+export function globalIgnoreLandLimits(state: GameState): boolean {
+  return globalTexts(state).some((t) => /requirements for summoning|other than magic cost are ignored/i.test(t))
+}
+
+export function globalBlockTransform(state: GameState): boolean {
+  return globalTexts(state).some((t) => /land transformation/i.test(t))
+}
+
+export function globalUniqueInPlay(state: GameState): boolean {
+  return globalTexts(state).some((t) => /same type as those already in play cannot be summoned/i.test(t))
+}
+
+export function spellAbilityDamageReduction(state: GameState): number {
+  for (const text of globalTexts(state)) {
+    const m = text.match(/damage to all creatures from spells and territory abilities is reduced by (\d+)/i)
+    if (m) return Number(m[1])
+  }
+  return 0
+}
+
+export function reducedAbilityDamage(state: GameState, amount: number): number {
+  return Math.max(0, amount - spellAbilityDamageReduction(state))
+}
+
 export function applyBattleGlobals(
   state: GameState,
   creature: MatchCard,

@@ -1,9 +1,17 @@
 import { crossedStart } from './board'
 import { resolveBattle } from './combat'
 import { tollAmount, totalMagic } from './economy'
-import { globalExtraDraw } from './globals'
+import {
+  globalBlockTransform,
+  globalExtraDraw,
+  globalIgnoreLandLimits,
+  globalUniqueInPlay,
+  reducedAbilityDamage
+} from './globals'
 import { COLOSSEUM_BOARD, COLOSSEUM_CONFIG } from './maps/colosseum'
+import { getMapConfig } from './maps'
 import { getAvailableActions, reduceGame, startMatch } from './state'
+import { tryResolveSpell } from './spells'
 import type { MatchCard } from './types'
 
 describe('Colosseum map', () => {
@@ -67,6 +75,18 @@ describe('startMatch', () => {
     )
     expect(state.config.mapId).toBe('crossroads')
     expect(state.config.board).toHaveLength(21)
+  })
+
+  it('can start on Temple Grounds', () => {
+    const state = startMatch(
+      [
+        { name: 'A', isAi: false },
+        { name: 'B', isAi: true }
+      ],
+      { mapId: 'temple-grounds' }
+    )
+    expect(state.config.mapId).toBe('temple-grounds')
+    expect(state.config.board).toHaveLength(22)
   })
 })
 
@@ -285,5 +305,258 @@ describe('global abilities', () => {
     }
     expect(globalExtraDraw(withIdol)).toBe(true)
     expect(globalExtraDraw(state)).toBe(false)
+  })
+
+  it('Gold-style ignores land limits when placing', () => {
+    let state = startMatch(['Alice', 'Bob'])
+    const gold = creature({
+      name: 'Gold Idol',
+      st: 0,
+      hp: 20,
+      keywords: ['defensive', 'global'],
+      abilityText:
+        'Item Limit: Defensive / Global Ability: Requirements for summoning creatures other than magic cost are ignored.'
+    })
+    const limited = creature({
+      name: 'Fish',
+      st: 10,
+      hp: 10,
+      element: 'water',
+      landLimits: ['fire'],
+      catalogId: 'fish'
+    })
+    state = {
+      ...state,
+      players: [
+        { ...state.players[0], position: 1, magic: 1000, hand: [limited] },
+        state.players[1]
+      ],
+      phase: 'landed',
+      selectedSquareId: 1,
+      territories: [{ squareId: 2, ownerId: 0, creature: gold, level: 1, tollHalved: false }]
+    }
+    expect(globalIgnoreLandLimits(state)).toBe(true)
+    expect(getAvailableActions(state)).toContain('place')
+    state = reduceGame(state, { type: 'choose_action', action: 'place' })
+    state = reduceGame(state, { type: 'select_creature', cardId: limited.instanceId })
+    expect(state.territories.some((t) => t.creature.catalogId === 'fish')).toBe(true)
+  })
+
+  it('Marble-style blocks a duplicate catalogId', () => {
+    let state = startMatch(['Alice', 'Bob'])
+    const marble = creature({
+      name: 'Marble Idol',
+      st: 0,
+      hp: 20,
+      keywords: ['defensive', 'global'],
+      abilityText:
+        'Item Limit: Defensive / Global Ability: Creatures of the same type as those already in play cannot be summoned.'
+    })
+    const first = creature({ name: 'Gob', st: 20, hp: 20, catalogId: 'gob' })
+    const second = creature({ name: 'Gob', st: 20, hp: 20, catalogId: 'gob', instanceId: 'gob-2' })
+    state = {
+      ...state,
+      players: [
+        { ...state.players[0], position: 2, magic: 1000, hand: [second] },
+        state.players[1]
+      ],
+      phase: 'landed',
+      selectedSquareId: 2,
+      territories: [
+        { squareId: 3, ownerId: 0, creature: marble, level: 1, tollHalved: false },
+        { squareId: 1, ownerId: 0, creature: first, level: 1, tollHalved: false }
+      ]
+    }
+    expect(globalUniqueInPlay(state)).toBe(true)
+    expect(getAvailableActions(state)).not.toContain('place')
+  })
+
+  it('Clay-style reduces spell creature damage by 10', () => {
+    const state = startMatch(['Alice', 'Bob'])
+    const clay = creature({
+      name: 'Clay Idol',
+      st: 0,
+      hp: 20,
+      keywords: ['defensive', 'global'],
+      abilityText:
+        'Item Limit: Defensive / Global Ability: Damage to all creatures from spells and territory abilities is reduced by 10.'
+    })
+    const wall = creature({ name: 'Wall', st: 0, hp: 30 })
+    const withClay = {
+      ...state,
+      players: [{ ...state.players[0], magic: 200, hand: [], discard: [] }, state.players[1]],
+      territories: [
+        { squareId: 1, ownerId: 0, creature: clay, level: 1, tollHalved: false },
+        { squareId: 2, ownerId: 1, creature: wall, level: 1, tollHalved: false }
+      ]
+    }
+    expect(reducedAbilityDamage(withClay, 20)).toBe(10)
+    const result = tryResolveSpell(withClay, withClay.players[0], {
+      ...wall,
+      instanceId: 'bolt',
+      catalogId: 'bolt',
+      name: 'Bolt',
+      kind: 'spell',
+      element: null,
+      st: 0,
+      hp: 0,
+      mhp: 0,
+      cost: 20,
+      abilityText: 'Deals 20 damage.'
+    })
+    expect(result.handled).toBe(true)
+    const after = result.state.territories.find((t) => t.squareId === 2)
+    expect(after?.creature.hp).toBe(20)
+  })
+})
+
+describe('Phase 3C squares and territory', () => {
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('warps once and does not chain through the paired gate', () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0)
+    const state = startMatch(['Alice', 'Bob'], { mapId: 'temple-grounds' })
+    const rolled = reduceGame(
+      {
+        ...state,
+        players: [{ ...state.players[0], position: 2 }, state.players[1]],
+        phase: 'roll'
+      },
+      { type: 'roll_dice' }
+    )
+    expect(rolled.players[0].position).toBe(14)
+    expect(rolled.phase).toBe('landed')
+    expect(rolled.log.some((line) => /warps/i.test(line))).toBe(true)
+  })
+
+  it('pays temple magic from symbol levels', () => {
+    let state = startMatch(['Alice', 'Bob'], { mapId: 'temple-grounds' })
+    const gob = creature({ name: 'Gob', st: 20, hp: 20 })
+    state = {
+      ...state,
+      players: [
+        { ...state.players[0], position: 8, magic: 200 },
+        state.players[1]
+      ],
+      phase: 'landed',
+      selectedSquareId: 8,
+      territories: [
+        { squareId: 1, ownerId: 0, creature: gob, level: 2, tollHalved: false },
+        { squareId: 2, ownerId: 0, creature: { ...gob, instanceId: 'gob-b' }, level: 1, tollHalved: false }
+      ]
+    }
+    expect(getAvailableActions(state)).toContain('temple')
+    const next = reduceGame(state, { type: 'choose_action', action: 'temple' })
+    expect(next.players[0].magic).toBe(260)
+  })
+
+  it('fortune can send the cepter to the castle without a lap', () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0.9)
+    let state = startMatch(['Alice', 'Bob'], { mapId: 'temple-grounds' })
+    const before = state.players[0].magic
+    state = {
+      ...state,
+      players: [
+        { ...state.players[0], position: 17, magic: before },
+        state.players[1]
+      ],
+      phase: 'landed',
+      selectedSquareId: 17
+    }
+    expect(getAvailableActions(state)).toContain('fortune')
+    const next = reduceGame(state, { type: 'choose_action', action: 'fortune' })
+    expect(next.players[0].position).toBe(0)
+    expect(next.players[0].magic).toBe(before)
+  })
+
+  it('exchanges creatures and leaves land levels in place', () => {
+    let state = startMatch(['Alice', 'Bob'])
+    const gob = creature({ name: 'Gob', st: 20, hp: 20, element: 'fire' })
+    const bird = creature({ name: 'Bird', st: 10, hp: 20, element: 'air', instanceId: 'bird' })
+    state = {
+      ...state,
+      players: [
+        { ...state.players[0], position: 1, magic: 1000 },
+        state.players[1]
+      ],
+      phase: 'landed',
+      selectedSquareId: 1,
+      territories: [
+        { squareId: 1, ownerId: 0, creature: gob, level: 3, tollHalved: false },
+        { squareId: 2, ownerId: 0, creature: bird, level: 1, tollHalved: false }
+      ]
+    }
+    expect(getAvailableActions(state)).toContain('exchange')
+    state = reduceGame(state, { type: 'choose_action', action: 'exchange' })
+    state = reduceGame(state, { type: 'select_square', squareId: 2 })
+    const a = state.territories.find((t) => t.squareId === 1)!
+    const b = state.territories.find((t) => t.squareId === 2)!
+    expect(a.creature.name).toBe('Bird')
+    expect(b.creature.name).toBe('Gob')
+    expect(a.level).toBe(3)
+    expect(b.level).toBe(1)
+  })
+
+  it('transforms land to the occupying creature element without mutating the map catalog', () => {
+    const catalogTerrain = getMapConfig('colosseum-i').board[1].terrain
+    let state = startMatch(['Alice', 'Bob'])
+    const bird = creature({ name: 'Bird', st: 10, hp: 20, element: 'air' })
+    state = {
+      ...state,
+      players: [
+        { ...state.players[0], position: 1, magic: 1000 },
+        state.players[1]
+      ],
+      phase: 'landed',
+      selectedSquareId: 1,
+      territories: [{ squareId: 1, ownerId: 0, creature: bird, level: 2, tollHalved: false }]
+    }
+    expect(getAvailableActions(state)).toContain('transform')
+    const next = reduceGame(state, { type: 'choose_action', action: 'transform' })
+    expect(next.config.board[1].terrain).toBe('air')
+    expect(next.players[0].magic).toBe(800)
+    expect(getMapConfig('colosseum-i').board[1].terrain).toBe(catalogTerrain)
+  })
+
+  it('hides transform under Jade and exchange under Lead', () => {
+    const jade = creature({
+      name: 'Jade Idol',
+      st: 0,
+      hp: 20,
+      keywords: ['defensive', 'global'],
+      abilityText:
+        'Item Limit: Defensive / Global Ability: All territories are prevented from undergoing land transformation via spells or territory abilities and are immune to effects that lower land levels.'
+    })
+    const lead = creature({
+      name: 'Lead Idol',
+      st: 0,
+      hp: 20,
+      keywords: ['defensive', 'global'],
+      abilityText: 'Item Limit: Defensive / Global Ability: Disables Move and Exchange commands.'
+    })
+    const bird = creature({ name: 'Bird', st: 10, hp: 20, element: 'air' })
+    const gob = creature({ name: 'Gob', st: 20, hp: 20, element: 'fire', instanceId: 'gob' })
+    let state = startMatch(['Alice', 'Bob'])
+    state = {
+      ...state,
+      players: [
+        { ...state.players[0], position: 1, magic: 1000 },
+        state.players[1]
+      ],
+      phase: 'landed',
+      selectedSquareId: 1,
+      territories: [
+        { squareId: 1, ownerId: 0, creature: bird, level: 1, tollHalved: false },
+        { squareId: 2, ownerId: 0, creature: gob, level: 1, tollHalved: false },
+        { squareId: 4, ownerId: 1, creature: jade, level: 1, tollHalved: false },
+        { squareId: 5, ownerId: 1, creature: lead, level: 1, tollHalved: false }
+      ]
+    }
+    expect(globalBlockTransform(state)).toBe(true)
+    expect(getAvailableActions(state)).not.toContain('transform')
+    expect(getAvailableActions(state)).not.toContain('exchange')
+    expect(getAvailableActions(state)).not.toContain('move_creature')
   })
 })

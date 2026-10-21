@@ -1,3 +1,4 @@
+import { reducedAbilityDamage } from './globals'
 import { cloneHand, cloneMatchCard, territoryAbilityCost } from './matchCards'
 import type { GameState, MatchCard, Player } from './types'
 
@@ -85,7 +86,7 @@ export function tryResolveTerritoryAbility(
 
   const dmg = text.match(/deals?\s+(\d+)\s+damage/i)
   if (dmg) {
-    const amount = Number(dmg[1])
+    const amount = reducedAbilityDamage(state, Number(dmg[1]))
     const enemies = state.territories
       .filter((t) => t.ownerId !== caster.id)
       .sort((a, b) => a.creature.hp - b.creature.hp)
