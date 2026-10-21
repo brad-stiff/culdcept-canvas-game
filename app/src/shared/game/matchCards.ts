@@ -93,6 +93,9 @@ export function parseKeywords(abilityText: string): {
   if (/instant\s*death/i.test(text)) keywords.push('instant_death')
   if (/\bsupport\b/i.test(text)) keywords.push('support')
   if (/item\s*creature/i.test(text)) keywords.push('item_creature')
+  if (/territory\s*ability/i.test(text)) keywords.push('territory_ability')
+  if (/secret\s*art/i.test(text)) keywords.push('secret_art')
+  if (/global\s*ability/i.test(text)) keywords.push('global')
 
   if (/neutralizes?\s*(?:effects?\s*of\s*)?weapons?/i.test(text) || /neutralizes?\s*weapon/i.test(text)) {
     keywords.push('neutralizes_weapon')
@@ -178,6 +181,22 @@ export function canPlaceOnTerrain(card: MatchCard, terrain: Element): boolean {
 
 export function canInvadeWith(card: MatchCard): boolean {
   return card.kind === 'creature' && !card.keywords.includes('defensive')
+}
+
+export function canMoveCreature(card: MatchCard): boolean {
+  return card.kind === 'creature' && !card.keywords.includes('defensive')
+}
+
+export function hasTerritoryAbility(card: MatchCard): boolean {
+  return card.keywords.includes('territory_ability') || card.keywords.includes('secret_art')
+}
+
+/** Extra G cost to activate TA/Secret Art when stated in ability text; else 0. */
+export function territoryAbilityCost(card: MatchCard): number {
+  const m = card.abilityText.match(
+    /(?:territory\s*ability|secret\s*art)[^/]*?(?:costs?|uses?)?\s*(\d+)\s*G/i
+  )
+  return m ? Number(m[1]) : 0
 }
 
 export function canEquipItem(creature: MatchCard, item: MatchCard): boolean {

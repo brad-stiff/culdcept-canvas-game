@@ -1,5 +1,5 @@
 import type { GameConfig, Square } from '../types'
-import { loopLayoutPositions } from './layout'
+import { loopLayoutPositions, withClockwiseExits } from './layout'
 
 /**
  * Culdcept Saga — Colosseum I (story opener).
@@ -11,11 +11,11 @@ import { loopLayoutPositions } from './layout'
  *
  * Stats: die 1–6, start/lap 200G, forts EW/80G, goal 5000G, 1 shrine, 16 elemental lands.
  */
-function land(id: number, name: string, terrain: Square['terrain']): Square {
+function land(id: number, name: string, terrain: Square['terrain']): Omit<Square, 'exits'> {
   return { id, name, terrain, squareType: 'land', landValue: 100 }
 }
 
-export const COLOSSEUM_BOARD: Square[] = [
+const COLOSSEUM_SQUARES: Omit<Square, 'exits'>[] = [
   { id: 0, name: 'Castle', terrain: 'neutral', squareType: 'castle', landValue: 0 },
   land(1, 'Fire Path', 'fire'),
   land(2, 'Fire Path', 'fire'),
@@ -37,6 +37,8 @@ export const COLOSSEUM_BOARD: Square[] = [
   land(18, 'Water Path', 'water'),
   land(19, 'Water Path', 'water')
 ]
+
+export const COLOSSEUM_BOARD: Square[] = withClockwiseExits(COLOSSEUM_SQUARES)
 
 export const COLOSSEUM_CONFIG: GameConfig = {
   mapId: 'colosseum-i',

@@ -11,6 +11,8 @@ export type Square = {
   squareType: SquareType
   /** Display / base land value used in toll math (Colosseum lands use 100). */
   landValue: number
+  /** Next squares in travel order (graph board). */
+  exits: number[]
 }
 
 export type Keyword =
@@ -27,6 +29,9 @@ export type Keyword =
   | 'neutralizes_scroll'
   | 'support'
   | 'item_creature'
+  | 'territory_ability'
+  | 'secret_art'
+  | 'global'
 
 /** Item equipment category (for Item Limit / Neutralizes). */
 export type ItemCategory = 'weapon' | 'armor' | 'scroll' | 'tool'
@@ -60,6 +65,8 @@ export type Territory = {
   ownerId: number
   creature: MatchCard
   level: number
+  /** Fog-style: toll halved while this creature occupies the land. */
+  tollHalved: boolean
 }
 
 export type SymbolCounts = {
@@ -86,10 +93,12 @@ export type Player = {
 export type GamePhase =
   | 'upkeep'
   | 'roll'
+  | 'choose_path'
   | 'landed'
   | 'select_creature'
   | 'select_item'
   | 'select_spell'
+  | 'select_square'
   | 'territory_menu'
   | 'battle_result'
   | 'game_over'
@@ -101,6 +110,8 @@ export type LandedAction =
   | 'level_up'
   | 'cast_spell'
   | 'shrine'
+  | 'move_creature'
+  | 'territory_ability'
   | 'skip'
 
 export type BattleOutcome = {
@@ -122,6 +133,8 @@ export type GameConfig = {
   maxLandLevel: number
   symbolValue: number
   board: Square[]
+  /** Optional normalized 0–1 positions keyed by square id order. */
+  layout?: { x: number; y: number }[]
 }
 
 export type GameState = {
@@ -139,15 +152,21 @@ export type GameState = {
   winnerId: number | null
   /** Creature chosen for invasion before optional item. */
   pendingAttackerId: string | null
+  /** Remaining die steps while walking / at a fork. */
+  pendingSteps: number
+  /** Square we arrived from (excludes reverse at forks). */
+  pathFromId: number | null
 }
 
 export type GameAction =
   | { type: 'begin_upkeep' }
   | { type: 'roll_dice' }
+  | { type: 'choose_path'; squareId: number }
   | { type: 'choose_action'; action: LandedAction }
   | { type: 'select_creature'; cardId: string }
   | { type: 'select_item'; cardId: string | null }
   | { type: 'select_spell'; cardId: string }
+  | { type: 'select_square'; squareId: number }
   | { type: 'acknowledge_battle' }
   | { type: 'end_turn' }
 

@@ -1,4 +1,5 @@
 import type { GameConfig, Square } from '../types'
+import { withClockwiseExits } from './layout'
 
 /**
  * Culdcept Saga — simplest Free Battle loop (Practice Field).
@@ -9,11 +10,11 @@ import type { GameConfig, Square } from '../types'
  * Castle → Fire×2 → Air×2 → Water×2 → Earth×2 → South Fort
  * → Fire×2 → Air×2 → Water×2 → Earth×2 → Castle
  */
-function land(id: number, name: string, terrain: Square['terrain']): Square {
+function land(id: number, name: string, terrain: Square['terrain']): Omit<Square, 'exits'> {
   return { id, name, terrain, squareType: 'land', landValue: 100 }
 }
 
-export const PRACTICE_FIELD_BOARD: Square[] = [
+const PRACTICE_FIELD_SQUARES: Omit<Square, 'exits'>[] = [
   { id: 0, name: 'Castle', terrain: 'neutral', squareType: 'castle', landValue: 0 },
   land(1, 'Fire Path', 'fire'),
   land(2, 'Fire Path', 'fire'),
@@ -33,6 +34,8 @@ export const PRACTICE_FIELD_BOARD: Square[] = [
   land(16, 'Earth Path', 'earth'),
   land(17, 'Earth Path', 'earth')
 ]
+
+export const PRACTICE_FIELD_BOARD: Square[] = withClockwiseExits(PRACTICE_FIELD_SQUARES)
 
 export const PRACTICE_FIELD_CONFIG: GameConfig = {
   mapId: 'practice-field',

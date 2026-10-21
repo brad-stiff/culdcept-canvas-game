@@ -1,14 +1,17 @@
 import type { GameConfig } from '../types'
 import { COLOSSEUM_CONFIG } from './colosseum'
+import { CROSSROADS_CONFIG } from './crossroads'
 import { PRACTICE_FIELD_CONFIG } from './practiceField'
 
 export { COLOSSEUM_BOARD, COLOSSEUM_CONFIG, colosseumLayoutPositions } from './colosseum'
+export { CROSSROADS_BOARD, CROSSROADS_CONFIG } from './crossroads'
 export { PRACTICE_FIELD_BOARD, PRACTICE_FIELD_CONFIG } from './practiceField'
 export { loopLayoutPositions } from './layout'
 
 const MAPS: Record<string, GameConfig> = {
   [COLOSSEUM_CONFIG.mapId]: COLOSSEUM_CONFIG,
-  [PRACTICE_FIELD_CONFIG.mapId]: PRACTICE_FIELD_CONFIG
+  [PRACTICE_FIELD_CONFIG.mapId]: PRACTICE_FIELD_CONFIG,
+  [CROSSROADS_CONFIG.mapId]: CROSSROADS_CONFIG
 }
 
 export type MapSummary = {

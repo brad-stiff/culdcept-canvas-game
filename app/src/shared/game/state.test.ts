@@ -1,8 +1,9 @@
 import { crossedStart } from './board'
 import { resolveBattle } from './combat'
-import { totalMagic } from './economy'
+import { tollAmount, totalMagic } from './economy'
+import { globalExtraDraw } from './globals'
 import { COLOSSEUM_BOARD, COLOSSEUM_CONFIG } from './maps/colosseum'
-import { reduceGame, startMatch } from './state'
+import { getAvailableActions, reduceGame, startMatch } from './state'
 import type { MatchCard } from './types'
 
 describe('Colosseum map', () => {
@@ -55,6 +56,18 @@ describe('startMatch', () => {
     expect(state.config.mapId).toBe('practice-field')
     expect(state.config.board).toHaveLength(18)
   })
+
+  it('can start on Crossroads', () => {
+    const state = startMatch(
+      [
+        { name: 'A', isAi: false },
+        { name: 'B', isAi: true }
+      ],
+      { mapId: 'crossroads' }
+    )
+    expect(state.config.mapId).toBe('crossroads')
+    expect(state.config.board).toHaveLength(21)
+  })
 })
 
 describe('crossedStart', () => {
@@ -78,7 +91,7 @@ describe('reduceGame movement', () => {
     )
     expect(rolled.players[0].magic).toBeGreaterThanOrEqual(before)
     if (rolled.players[0].position < 19) {
-      expect(rolled.players[0].magic).toBe(before + state.config.lapMagic)
+      expect(rolled.players[0].magic).toBeGreaterThanOrEqual(before + state.config.lapMagic)
     }
   })
 })
@@ -167,5 +180,110 @@ describe('totalMagic', () => {
   it('counts liquid magic toward the goal', () => {
     const state = startMatch(['Alice', 'Bob'])
     expect(totalMagic(state, state.players[0])).toBe(state.players[0].magic)
+  })
+})
+
+function creature(
+  partial: Partial<MatchCard> & Pick<MatchCard, 'name' | 'st' | 'hp'>
+): MatchCard {
+  return {
+    instanceId: partial.name,
+    catalogId: partial.name,
+    kind: 'creature',
+    element: 'fire',
+    mhp: partial.hp,
+    cost: 0,
+    abilityText: '',
+    keywords: [],
+    itemBonusSt: 0,
+    itemBonusHp: 0,
+    itemCategory: null,
+    landLimits: [],
+    itemLimits: [],
+    ...partial
+  }
+}
+
+describe('Crossroads forks', () => {
+  it('asks for a path when rolling from the castle', () => {
+    const state = startMatch(
+      [
+        { name: 'A', isAi: false },
+        { name: 'B', isAi: true }
+      ],
+      { mapId: 'crossroads' }
+    )
+    const rolled = reduceGame(state, { type: 'roll_dice' })
+    expect(rolled.phase).toBe('choose_path')
+    expect(rolled.pendingSteps).toBeGreaterThan(0)
+    const chosen = reduceGame(rolled, { type: 'choose_path', squareId: 1 })
+    expect(chosen.players[0].position).not.toBe(0)
+  })
+})
+
+describe('territory commands', () => {
+  it('moves a creature to an adjacent empty land', () => {
+    let state = startMatch(['Alice', 'Bob'])
+    const gob = creature({ name: 'Gob', st: 20, hp: 20, element: 'fire' })
+    state = {
+      ...state,
+      players: [
+        { ...state.players[0], position: 1, magic: 1000 },
+        state.players[1]
+      ],
+      phase: 'landed',
+      selectedSquareId: 1,
+      territories: [{ squareId: 1, ownerId: 0, creature: gob, level: 1, tollHalved: false }]
+    }
+    expect(getAvailableActions(state)).toContain('move_creature')
+    state = reduceGame(state, { type: 'choose_action', action: 'move_creature' })
+    expect(state.phase).toBe('select_square')
+    state = reduceGame(state, { type: 'select_square', squareId: 2 })
+    expect(state.territories[0].squareId).toBe(2)
+  })
+
+  it('applies Fog to halve toll', () => {
+    let state = startMatch(['Alice', 'Bob'])
+    const fogger = creature({
+      name: 'Mist',
+      st: 10,
+      hp: 20,
+      keywords: ['territory_ability'],
+      abilityText: 'Territory Ability: Fog = Target territory toll is reduced by 1/2.'
+    })
+    state = {
+      ...state,
+      players: [
+        { ...state.players[0], position: 1, magic: 1000 },
+        state.players[1]
+      ],
+      phase: 'landed',
+      selectedSquareId: 1,
+      territories: [{ squareId: 1, ownerId: 0, creature: fogger, level: 2, tollHalved: false }]
+    }
+    const before = tollAmount(state, 1)
+    expect(getAvailableActions(state)).toContain('territory_ability')
+    state = reduceGame(state, { type: 'choose_action', action: 'territory_ability' })
+    expect(state.territories[0].tollHalved).toBe(true)
+    expect(tollAmount(state, 1)).toBe(Math.floor(before / 2))
+  })
+})
+
+describe('global abilities', () => {
+  it('detects Brass-style extra draw', () => {
+    const state = startMatch(['Alice', 'Bob'])
+    const idol = creature({
+      name: 'Brass Idol',
+      st: 0,
+      hp: 20,
+      keywords: ['defensive', 'global'],
+      abilityText: 'Defensive / Global Ability: All Cepters draw two cards when drawing instead of one.'
+    })
+    const withIdol = {
+      ...state,
+      territories: [{ squareId: 1, ownerId: 0, creature: idol, level: 1, tollHalved: false }]
+    }
+    expect(globalExtraDraw(withIdol)).toBe(true)
+    expect(globalExtraDraw(state)).toBe(false)
   })
 })

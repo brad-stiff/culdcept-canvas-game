@@ -1,4 +1,5 @@
 import { landEffectBonus, squareById } from './board'
+import { applyBattleGlobals } from './globals'
 import type { BattleOutcome, GameState, MatchCard, Square } from './types'
 
 export type Battleants = {
@@ -137,8 +138,8 @@ export function resolveBattleFromState(
   }
   const square = squareById(state.config.board, squareId)
   return resolveBattle({
-    attacker,
-    defender: terr.creature,
+    attacker: applyBattleGlobals(state, attacker, 'attacker'),
+    defender: applyBattleGlobals(state, terr.creature, 'defender'),
     item,
     square,
     landLevel: terr.level

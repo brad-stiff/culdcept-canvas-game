@@ -38,5 +38,7 @@ export function tollAmount(state: GameState, squareId: number): number {
   const chain = chainSize(state, squareId, terr.ownerId)
   const levelFactor = 0.5 + terr.level * 0.5
   const chainFactor = 1 + 0.25 * Math.max(0, chain - 1)
-  return Math.floor(square.landValue * levelFactor * chainFactor)
+  let amount = Math.floor(square.landValue * levelFactor * chainFactor)
+  if (terr.tollHalved) amount = Math.floor(amount / 2)
+  return amount
 }

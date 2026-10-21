@@ -5,12 +5,14 @@ import { PLAYER_COLORS } from '../../../shared/game/playerColors'
 import {
   canRoll,
   getAvailableActions,
+  getMoveTargets,
+  getPathChoices,
   getPhaseLabel,
   getSelectableCardIds,
   reduceGame,
   startMatch
 } from '../../../shared/game/state'
-import type { GameAction, GameState, LandedAction, MatchSeat } from '../../../shared/game/types'
+import type { GameAction, GameConfig, GameState, LandedAction, MatchSeat } from '../../../shared/game/types'
 
 type Layout = {
   width: number
@@ -78,7 +80,7 @@ export class GameView {
   }
 
   resize(cssWidth: number, cssHeight: number): void {
-    this.layout = computeLayout(cssWidth, cssHeight, this.state.config.board.length)
+    this.layout = computeLayout(cssWidth, cssHeight, this.state.config)
     this.draw(cssWidth, cssHeight)
   }
 
@@ -156,6 +158,26 @@ export class GameView {
       return
     }
 
+    const pathIds =
+      this.state.phase === 'choose_path'
+        ? getPathChoices(this.state)
+        : this.state.phase === 'select_square'
+          ? getMoveTargets(this.state)
+          : []
+    if (this.layout && pathIds.length > 0) {
+      const squareSize = Math.max(40, Math.min(this.layout.width, this.layout.height) * 0.07)
+      for (const id of pathIds) {
+        const idx = this.state.config.board.findIndex((s) => s.id === id)
+        const pos = this.layout.squarePositions[idx >= 0 ? idx : id]
+        if (!pos) continue
+        if (hitRect(x, y, pos.x - squareSize / 2, pos.y - squareSize / 2, squareSize, squareSize)) {
+          if (this.state.phase === 'choose_path') this.dispatch({ type: 'choose_path', squareId: id })
+          else this.dispatch({ type: 'select_square', squareId: id })
+          return
+        }
+      }
+    }
+
     const actions = getAvailableActions(this.state)
     let i = 0
     for (const action of actions) {
@@ -218,7 +240,19 @@ function hitRect(px: number, py: number, x: number, y: number, w: number, h: num
   return px >= x && px <= x + w && py >= y && py <= y + h
 }
 
-function computeLayout(w: number, h: number, squareCount: number): Layout {
+function computeLayout(w: number, h: number, config: GameConfig): Layout {
+  if (config.layout && config.layout.length === config.board.length) {
+    const marginX = w * 0.1
+    const marginY = h * 0.1
+    const bw = w - marginX * 2
+    const bh = h * 0.52
+    const byId = new Map(config.board.map((s, i) => [s.id, config.layout![i] ?? config.layout![s.id]]))
+    const squarePositions = config.board.map((s) => {
+      const p = byId.get(s.id) ?? { x: 0.5, y: 0.5 }
+      return { x: marginX + p.x * bw, y: marginY + 36 + p.y * bh }
+    })
+    return { width: w, height: h, squarePositions }
+  }
   const cx = w / 2
   const cy = h * 0.4
   const radiusX = Math.min(w, h) * 0.36
@@ -226,7 +260,7 @@ function computeLayout(w: number, h: number, squareCount: number): Layout {
   return {
     width: w,
     height: h,
-    squarePositions: loopLayoutPositions(squareCount, cx, cy, radiusX, radiusY)
+    squarePositions: loopLayoutPositions(config.board.length, cx, cy, radiusX, radiusY)
   }
 }
 
@@ -254,20 +288,38 @@ function terrainColor(terrain: string): string {
   }
 }
 
+function posForId(layout: Layout, board: GameState['config']['board'], id: number): { x: number; y: number } {
+  const idx = board.findIndex((s) => s.id === id)
+  return layout.squarePositions[idx >= 0 ? idx : id]
+}
+
 function drawBoard(ctx: CanvasRenderingContext2D, state: GameState, layout: Layout): void {
   const { squarePositions } = layout
   const board = state.config.board
   const squareSize = Math.max(40, Math.min(layout.width, layout.height) * 0.07)
+  const pathIds = new Set(
+    state.phase === 'choose_path'
+      ? getPathChoices(state)
+      : state.phase === 'select_square'
+        ? getMoveTargets(state)
+        : []
+  )
 
-  for (let i = 0; i < board.length; i++) {
-    const a = squarePositions[i]
-    const b = squarePositions[(i + 1) % board.length]
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)'
-    ctx.lineWidth = 3
-    ctx.beginPath()
-    ctx.moveTo(a.x, a.y)
-    ctx.lineTo(b.x, b.y)
-    ctx.stroke()
+  const drawn = new Set<string>()
+  for (const square of board) {
+    const a = posForId(layout, board, square.id)
+    for (const dest of square.exits) {
+      const key = square.id < dest ? `${square.id}-${dest}` : `${dest}-${square.id}`
+      if (drawn.has(key)) continue
+      drawn.add(key)
+      const b = posForId(layout, board, dest)
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)'
+      ctx.lineWidth = 3
+      ctx.beginPath()
+      ctx.moveTo(a.x, a.y)
+      ctx.lineTo(b.x, b.y)
+      ctx.stroke()
+    }
   }
 
   for (let i = 0; i < board.length; i++) {
@@ -275,10 +327,11 @@ function drawBoard(ctx: CanvasRenderingContext2D, state: GameState, layout: Layo
     const pos = squarePositions[i]
     const territory = state.territories.find((t) => t.squareId === square.id)
     const ownerColor = territory ? PLAYER_COLORS[territory.ownerId] : null
+    const highlight = pathIds.has(square.id)
 
     ctx.fillStyle = terrainColor(square.terrain)
-    ctx.strokeStyle = ownerColor ?? 'rgba(255,255,255,0.25)'
-    ctx.lineWidth = ownerColor ? 3 : 1
+    ctx.strokeStyle = highlight ? '#e8c36a' : ownerColor ?? 'rgba(255,255,255,0.25)'
+    ctx.lineWidth = highlight ? 3 : ownerColor ? 3 : 1
     roundRect(ctx, pos.x - squareSize / 2, pos.y - squareSize / 2, squareSize, squareSize, 6)
     ctx.fill()
     ctx.stroke()
@@ -295,7 +348,7 @@ function drawBoard(ctx: CanvasRenderingContext2D, state: GameState, layout: Layo
   }
 
   for (const player of state.players) {
-    const pos = squarePositions[player.position]
+    const pos = posForId(layout, board, player.position)
     const offset = player.id === 0 ? -12 : 12
     ctx.beginPath()
     ctx.fillStyle = player.color
@@ -419,6 +472,21 @@ function drawActionBar(
   }
 
   const actions = getAvailableActions(state)
+  if (state.phase === 'choose_path') {
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'
+    ctx.font = '12px system-ui,sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('Click a highlighted path', w / 2, y - 16)
+    return
+  }
+  if (state.phase === 'select_square') {
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'
+    ctx.font = '12px system-ui,sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('Click a highlighted land to move', w / 2, y - 16)
+    return
+  }
+
   const labels: Record<LandedAction, string> = {
     place: 'Summon',
     battle: 'Invade',
@@ -426,6 +494,8 @@ function drawActionBar(
     level_up: 'Level up',
     cast_spell: 'Spell',
     shrine: 'Pray',
+    move_creature: 'Move',
+    territory_ability: 'Ability',
     skip: 'Skip'
   }
   let i = 0

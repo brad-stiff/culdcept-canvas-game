@@ -2,7 +2,7 @@
 
 Electron + Vite + TypeScript Free Battle clone of **Culdcept Saga** (personal / at-home use). Application code lives in the [`app`](./app) workspace.
 
-**Phase 3 (current):** Free Battle content slice — **3A keywords** + expanded spells, **Colosseum / Practice Field** map picker, **deck builder** (50-card books), smarter AI. Still **2–4** cepters with local hotseat or **LAN host/join**.
+**Phase 3B (current):** Graph boards with fork choice, **Crossroads** X-map, Territory Ability / Move Creature, and a small Global Ability set — on top of 3A keywords, spells, deck builder, and LAN. Still **2–4** cepters.
 
 ## Prerequisites
 

@@ -22,6 +22,13 @@ describe('parseKeywords 3A', () => {
     expect(parsed.itemLimits).toEqual(expect.arrayContaining(['weapon', 'scroll']))
   })
 
+  it('parses territory, secret art, and global', () => {
+    const parsed = parseKeywords('Defensive / Global Ability: extra draw. Territory Ability / Secret Art')
+    expect(parsed.keywords).toEqual(
+      expect.arrayContaining(['global', 'territory_ability', 'secret_art', 'defensive'])
+    )
+  })
+
   it('parses neutralizes categories', () => {
     const parsed = parseKeywords('Neutralizes: Weapon / Armor')
     expect(parsed.keywords).toEqual(

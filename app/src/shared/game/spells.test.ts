@@ -71,7 +71,7 @@ describe('tryResolveSpell 3A', () => {
     const withTerr = {
       ...state,
       players: [{ ...state.players[0], magic: 200, hand: [], discard: [] }, state.players[1]],
-      territories: [{ squareId: 1, ownerId: 1, creature, level: 1 }]
+      territories: [{ squareId: 1, ownerId: 1, creature, level: 1, tollHalved: false }]
     }
     const result = tryResolveSpell(
       withTerr,

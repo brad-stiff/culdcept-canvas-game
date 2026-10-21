@@ -1,26 +1,36 @@
 import {
-  advancePosition,
-  crossedStart,
+  emptyAdjacentLands,
   levelUpCost,
+  pathChoices,
   squareById,
-  territoryAt
+  territoryAt,
+  walkPath
 } from './board'
 import { resolveBattleFromState } from './combat'
 import { tollAmount, totalMagic } from './economy'
+import {
+  globalDisableTerritoryAbility,
+  globalExtraDraw,
+  moveDisabledByGlobal
+} from './globals'
 import { getMapConfig } from './maps'
 import {
   buildBookFromCatalogIds,
   buildStarterBook,
   canEquipItem,
   canInvadeWith,
+  canMoveCreature,
   canPlaceOnTerrain,
   cloneHand,
   cloneMatchCard,
+  hasTerritoryAbility,
   resetInstanceIds,
-  shuffleInPlace
+  shuffleInPlace,
+  territoryAbilityCost
 } from './matchCards'
 import { PLAYER_COLORS } from './playerColors'
 import { drawOne, isCastableSpell, tryResolveSpell } from './spells'
+import { tryResolveTerritoryAbility } from './territoryAbilities'
 import type {
   GameAction,
   GameState,
@@ -56,7 +66,7 @@ function clonePlayer(player: Player): Player {
 }
 
 function cloneTerritories(territories: Territory[]): Territory[] {
-  return territories.map((t) => ({ ...t, creature: cloneMatchCard(t.creature) }))
+  return territories.map((t) => ({ ...t, creature: cloneMatchCard(t.creature), tollHalved: t.tollHalved }))
 }
 
 function appendLog(state: GameState, message: string): string[] {
@@ -150,17 +160,24 @@ export function createInitialState(
     selectedSquareId: null,
     lastBattle: null,
     winnerId: null,
-    pendingAttackerId: null
+    pendingAttackerId: null,
+    pendingSteps: 0,
+    pathFromId: null
   }
 }
 
 function beginUpkeep(state: GameState): GameState {
   const idx = state.currentPlayerIndex
   let player = clonePlayer(state.players[idx])
-  const drawn = drawOne(player, state.config.handLimit)
-  player = drawn.player
-  const log = drawn.drew
-    ? appendLog(state, `${player.name} draws ${drawn.drew.name}.`)
+  const draws = globalExtraDraw(state) ? 2 : 1
+  const drewNames: string[] = []
+  for (let i = 0; i < draws; i++) {
+    const drawn = drawOne(player, state.config.handLimit)
+    player = drawn.player
+    if (drawn.drew) drewNames.push(drawn.drew.name)
+  }
+  const log = drewNames.length
+    ? appendLog(state, `${player.name} draws ${drewNames.join(', ')}.`)
     : appendLog(state, `${player.name}'s turn.`)
   return {
     ...replacePlayer(state, player),
@@ -169,6 +186,7 @@ function beginUpkeep(state: GameState): GameState {
     pendingAction: null,
     selectedSquareId: null,
     pendingAttackerId: null,
+    pendingSteps: 0,
     log
   }
 }
@@ -214,19 +232,96 @@ function afterLanding(state: GameState, player: Player): GameState {
   return withWinner(next)
 }
 
+function applyWalkResult(
+  state: GameState,
+  player: Player,
+  walk: ReturnType<typeof walkPath>,
+  roll: number,
+  logBase: string
+): GameState {
+  if (walk.kind === 'fork') {
+    let nextPlayer = { ...player, position: walk.position }
+    let log = appendLog(state, `${logBase} Choose a path.`)
+    if (walk.crossedCastle) {
+      nextPlayer = { ...nextPlayer, magic: nextPlayer.magic + state.config.lapMagic }
+      log = appendLog(state, `${player.name} laps (+${state.config.lapMagic}G).`)
+    }
+    return {
+      ...replacePlayer(state, nextPlayer),
+      phase: 'choose_path',
+      lastRoll: roll,
+      pendingSteps: walk.remaining,
+      pathFromId: walk.cameFrom,
+      selectedSquareId: nextPlayer.position,
+      log
+    }
+  }
+  let nextPlayer = { ...player, position: walk.position }
+  let log = appendLog(state, logBase)
+  if (walk.crossedCastle) {
+    nextPlayer = { ...nextPlayer, magic: nextPlayer.magic + state.config.lapMagic }
+    log = appendLog(state, `${player.name} laps (+${state.config.lapMagic}G).`)
+  }
+  return afterLanding(
+    {
+      ...replacePlayer(state, nextPlayer),
+      lastRoll: roll,
+      pendingSteps: 0,
+      pathFromId: walk.cameFrom,
+      log
+    },
+    nextPlayer
+  )
+}
+
 function applyRoll(state: GameState): GameState {
   const idx = state.currentPlayerIndex
   const player = clonePlayer(state.players[idx])
   const roll = 1 + Math.floor(Math.random() * state.config.maxDie)
-  const oldPos = player.position
-  const newPos = advancePosition(oldPos, roll, state.config.board.length)
-  player.position = newPos
-  let log = appendLog(state, `${player.name} rolls ${roll}.`)
-  if (crossedStart(oldPos, newPos)) {
-    player.magic += state.config.lapMagic
-    log = [...log.slice(0, -1), `${player.name} rolls ${roll} and laps (+${state.config.lapMagic}G).`]
+  const walk = walkPath(state.config.board, player.position, roll, state.pathFromId)
+  return applyWalkResult(state, player, walk, roll, `${player.name} rolls ${roll}.`)
+}
+
+function choosePath(state: GameState, squareId: number): GameState {
+  const idx = state.currentPlayerIndex
+  const player = clonePlayer(state.players[idx])
+  const here = squareById(state.config.board, player.position)
+  const choices = pathChoices(here, state.pathFromId)
+  if (!choices.includes(squareId)) return state
+  const remainingAfter = state.pendingSteps - 1
+  let nextPlayer = { ...player, position: squareId }
+  let crossedCastle = squareById(state.config.board, squareId).squareType === 'castle'
+  if (remainingAfter <= 0) {
+    let log = appendLog(state, `${player.name} takes the ${squareById(state.config.board, squareId).name} path.`)
+    if (crossedCastle) {
+      nextPlayer = { ...nextPlayer, magic: nextPlayer.magic + state.config.lapMagic }
+      log = appendLog(state, `${player.name} laps (+${state.config.lapMagic}G).`)
+    }
+    return afterLanding(
+      {
+        ...replacePlayer(state, nextPlayer),
+        pendingSteps: 0,
+        pathFromId: player.position,
+        log
+      },
+      nextPlayer
+    )
   }
-  return afterLanding({ ...replacePlayer(state, player), lastRoll: roll, log }, player)
+  const walk = walkPath(state.config.board, squareId, remainingAfter, player.position)
+  let afterStep = replacePlayer(state, nextPlayer)
+  let logMsg = `${player.name} takes the ${squareById(state.config.board, squareId).name} path.`
+  if (crossedCastle) {
+    nextPlayer = { ...nextPlayer, magic: nextPlayer.magic + state.config.lapMagic }
+    afterStep = replacePlayer(state, nextPlayer)
+    logMsg = `${player.name} laps (+${state.config.lapMagic}G).`
+  }
+  return applyWalkResult(
+    { ...afterStep, log: appendLog(state, logMsg) },
+    nextPlayer,
+    walk,
+    state.lastRoll ?? 0,
+    `${player.name} continues.`
+  )
 }
 
 function removeFromHand(player: Player, instanceId: string): { player: Player; card: MatchCard } {
@@ -252,7 +347,7 @@ function placeCreature(state: GameState, cardId: string): GameState {
   player = { ...without, magic: without.magic - card.cost }
   const territories = [
     ...cloneTerritories(state.territories),
-    { squareId, ownerId: player.id, creature: cloneMatchCard(card), level: 1 }
+    { squareId, ownerId: player.id, creature: cloneMatchCard(card), level: 1, tollHalved: false }
   ]
   return withWinner(
     endTurn({
@@ -306,7 +401,8 @@ function finishBattle(state: GameState, itemId: string | null): GameState {
       squareId,
       ownerId: player.id,
       creature: { ...cloneMatchCard(attacker), hp: Math.max(1, outcome.attackerRemainingHp) },
-      level: terr.level
+      level: terr.level,
+      tollHalved: false
     })
   } else {
     // Failed invasion — attacker discarded, defender may take damage
@@ -467,6 +563,20 @@ export function getAvailableActions(state: GameState): LandedAction[] {
     if (terr.level < state.config.maxLandLevel && player.magic >= levelUpCost(terr.level)) {
       actions.push('level_up')
     }
+    if (
+      canMoveCreature(terr.creature) &&
+      emptyAdjacentLands(state, squareId).length > 0 &&
+      !moveDisabledByGlobal(state)
+    ) {
+      actions.push('move_creature')
+    }
+    if (
+      hasTerritoryAbility(terr.creature) &&
+      player.magic >= territoryAbilityCost(terr.creature) &&
+      !globalDisableTerritoryAbility(state)
+    ) {
+      actions.push('territory_ability')
+    }
     actions.push('skip')
   } else {
     actions.push('skip')
@@ -525,6 +635,10 @@ export function getPhaseLabel(state: GameState): string {
       return `${name} — equip item (or skip)`
     case 'select_spell':
       return `${name} — choose spell`
+    case 'select_square':
+      return `${name} — choose destination`
+    case 'choose_path':
+      return `${name} — choose path`
     case 'territory_menu':
       return `${name} — territory`
     case 'battle_result':
@@ -536,6 +650,61 @@ export function getPhaseLabel(state: GameState): string {
   }
 }
 
+export function getPathChoices(state: GameState): number[] {
+  if (state.phase !== 'choose_path') return []
+  const player = state.players[state.currentPlayerIndex]
+  const square = squareById(state.config.board, player.position)
+  return pathChoices(square, state.pathFromId)
+}
+
+export function getMoveTargets(state: GameState): number[] {
+  if (state.phase !== 'select_square' || state.pendingAction !== 'move_creature') return []
+  const player = state.players[state.currentPlayerIndex]
+  const squareId = state.selectedSquareId ?? player.position
+  return emptyAdjacentLands(state, squareId)
+}
+
+function moveCreatureTo(state: GameState, destId: number): GameState {
+  const idx = state.currentPlayerIndex
+  const player = clonePlayer(state.players[idx])
+  const fromId = state.selectedSquareId ?? player.position
+  const terr = territoryAt(state, fromId)
+  if (!terr || terr.ownerId !== player.id) return state
+  if (!canMoveCreature(terr.creature)) return state
+  if (!emptyAdjacentLands(state, fromId).includes(destId)) return state
+  const dest = squareById(state.config.board, destId)
+  if (!canPlaceOnTerrain(terr.creature, dest.terrain)) return state
+  const territories = cloneTerritories(state.territories)
+    .filter((t) => t.squareId !== fromId)
+    .concat([{ ...terr, squareId: destId }])
+  return withWinner(
+    endTurn({
+      ...replacePlayer(state, player),
+      territories,
+      pendingAction: null,
+      log: appendLog(state, `${player.name} moves ${terr.creature.name} to ${dest.name}.`)
+    })
+  )
+}
+
+function useTerritoryAbility(state: GameState): GameState {
+  const idx = state.currentPlayerIndex
+  const player = clonePlayer(state.players[idx])
+  const squareId = state.selectedSquareId ?? player.position
+  const terr = territoryAt(state, squareId)
+  if (!terr || terr.ownerId !== player.id || !hasTerritoryAbility(terr.creature)) return state
+  if (globalDisableTerritoryAbility(state)) return state
+  const result = tryResolveTerritoryAbility(state, player, terr.creature, squareId)
+  if (!result.handled) return state
+  return withWinner(
+    endTurn({
+      ...result.state,
+      pendingAction: null,
+      log: appendLog(state, result.message)
+    })
+  )
+}
+
 export function reduceGame(state: GameState, action: GameAction): GameState {
   if (state.phase === 'game_over') return state
 
@@ -545,6 +714,13 @@ export function reduceGame(state: GameState, action: GameAction): GameState {
     case 'roll_dice':
       if (state.phase !== 'roll') return state
       return applyRoll(state)
+    case 'choose_path':
+      if (state.phase !== 'choose_path') return state
+      return choosePath(state, action.squareId)
+    case 'select_square':
+      if (state.phase !== 'select_square') return state
+      if (state.pendingAction === 'move_creature') return moveCreatureTo(state, action.squareId)
+      return state
     case 'choose_action': {
       if (state.phase !== 'landed' && state.phase !== 'territory_menu') return state
       const available = getAvailableActions(state)
@@ -561,6 +737,10 @@ export function reduceGame(state: GameState, action: GameAction): GameState {
       if (action.action === 'cast_spell') {
         return { ...state, phase: 'select_spell', pendingAction: 'cast_spell' }
       }
+      if (action.action === 'move_creature') {
+        return { ...state, phase: 'select_square', pendingAction: 'move_creature' }
+      }
+      if (action.action === 'territory_ability') return useTerritoryAbility(state)
       if (action.action === 'skip') return endTurn(state)
       return state
     }

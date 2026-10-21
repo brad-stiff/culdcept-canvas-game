@@ -1,3 +1,11 @@
+import type { Square } from '../types'
+
+/** Clockwise ring exits for simple loop maps. */
+export function withClockwiseExits(board: Omit<Square, 'exits'>[]): Square[] {
+  const n = board.length
+  return board.map((s, i) => ({ ...s, exits: [(i + 1) % n] }))
+}
+
 /** Diamond / rectangle perimeter positions for single-loop boards. */
 export function loopLayoutPositions(
   count: number,

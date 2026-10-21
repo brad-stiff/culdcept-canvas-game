@@ -1,13 +1,16 @@
+import { emptyAdjacentLands, squareById, territoryAt } from './board'
 import { estimateInvasionFavorable } from './combat'
 import { tollAmount } from './economy'
-import { squareById, territoryAt } from './board'
 import { spellHasHandledEffect } from './spells'
 import {
   canRoll,
   getAvailableActions,
+  getMoveTargets,
+  getPathChoices,
   getSelectableCardIds,
   reduceGame
 } from './state'
+import { territoryAbilityHasHandledEffect } from './territoryAbilities'
 import type { GameAction, GameState, MatchCard } from './types'
 
 function preferElementMatch(handIds: string[], player: GameState['players'][0], terrain: string): string {
@@ -21,7 +24,7 @@ function preferElementMatch(handIds: string[], player: GameState['players'][0], 
 }
 
 /**
- * Phase-3A AI: element-aware placement, fight when favored, prefer real spells.
+ * Phase-3B AI: forks, element-aware move, handled territory abilities.
  */
 export function chooseAiAction(state: GameState): GameAction | null {
   if (state.phase === 'game_over') return null
@@ -32,6 +35,30 @@ export function chooseAiAction(state: GameState): GameAction | null {
 
   if (canRoll(state)) {
     return { type: 'roll_dice' }
+  }
+
+  if (state.phase === 'choose_path') {
+    const choices = getPathChoices(state)
+    if (choices.length === 0) return null
+    const player = state.players[state.currentPlayerIndex]
+    const preferred = choices.find((id) => {
+      const sq = squareById(state.config.board, id)
+      return player.hand.some((c) => c.kind === 'creature' && c.element === sq.terrain)
+    })
+    return { type: 'choose_path', squareId: preferred ?? choices[0] }
+  }
+
+  if (state.phase === 'select_square') {
+    const targets = getMoveTargets(state)
+    if (targets.length === 0) return { type: 'end_turn' }
+    const player = state.players[state.currentPlayerIndex]
+    const fromId = state.selectedSquareId ?? player.position
+    const terr = territoryAt(state, fromId)
+    const match = targets.find((id) => {
+      const sq = squareById(state.config.board, id)
+      return terr?.creature.element === sq.terrain
+    })
+    return { type: 'select_square', squareId: match ?? targets[0] }
   }
 
   if (state.phase === 'battle_result') {
@@ -91,6 +118,21 @@ export function chooseAiAction(state: GameState): GameAction | null {
       return { type: 'choose_action', action: 'pay_toll' }
     }
 
+    if (actions.includes('move_creature') && terr) {
+      const dests = emptyAdjacentLands(state, squareId)
+      const better = dests.some((id) => {
+        const sq = squareById(state.config.board, id)
+        return terr.creature.element === sq.terrain && square.terrain !== sq.terrain
+      })
+      if (better) return { type: 'choose_action', action: 'move_creature' }
+    }
+
+    if (actions.includes('territory_ability') && terr && player.magic > 200) {
+      if (territoryAbilityHasHandledEffect(terr.creature.abilityText) || player.magic > 400) {
+        return { type: 'choose_action', action: 'territory_ability' }
+      }
+    }
+
     if (actions.includes('level_up')) {
       const flush = player.magic > 350
       const pressure = terr != null && terr.level < 3 && player.magic > 250
@@ -115,7 +157,7 @@ export function chooseAiAction(state: GameState): GameAction | null {
 }
 
 /** Advance the state while the current player is AI (bounded steps). */
-export function runAiUntilHuman(state: GameState, maxSteps = 40): GameState {
+export function runAiUntilHuman(state: GameState, maxSteps = 80): GameState {
   let current = state
   for (let i = 0; i < maxSteps; i++) {
     if (current.phase === 'game_over') break
