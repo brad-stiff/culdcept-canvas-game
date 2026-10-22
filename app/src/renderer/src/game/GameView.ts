@@ -21,7 +21,9 @@ import type {
   MatchSeat,
   Player
 } from '../../../shared/game/types'
+import { combatViewFromState } from '../../../shared/game/combat'
 import { CardArtCache, drawImageCover } from './cardArtCache'
+import { combatHpT, drawCombatOverlay } from './combatView'
 import { createDiceSpin, diceProgress, diceRotation, drawDie, type DiceSpin } from './dice'
 import { renderInspectPanel } from './inspectPanel'
 import {
@@ -55,8 +57,14 @@ type Fx =
       startMs: number
       stepMs: number
     }
+  | {
+      kind: 'combat'
+      startMs: number
+      durationMs: number
+    }
 
 const WALK_STEP_MS = 200
+const COMBAT_MS = 920
 
 export type GameViewOptions = {
   seats?: MatchSeat[]
@@ -150,7 +158,7 @@ export class GameView {
   }
 
   private canControlCurrent(): boolean {
-    if (this.fx.kind !== 'idle') return false
+    if (this.fx.kind === 'dice' || this.fx.kind === 'walk') return false
     const player = this.state.players[this.state.currentPlayerIndex]
     if (!player || player.isAi) return false
     if (this.localPlayerId == null) return true
@@ -170,6 +178,12 @@ export class GameView {
   private beginPresentation(prev: GameState, next: GameState): void {
     this.preloadArt()
     this.refreshInspectTargets()
+    const now = performance.now()
+    if (next.phase === 'battle_result' && prev.phase !== 'battle_result' && next.lastBattle) {
+      this.fx = { kind: 'combat', startMs: now, durationMs: COMBAT_MS }
+      this.startLoop()
+      return
+    }
     const plan = movementPlan(prev, next)
     if (!plan) {
       this.fx = { kind: 'idle' }
@@ -177,7 +191,6 @@ export class GameView {
       this.queueAi()
       return
     }
-    const now = performance.now()
     if (plan.dice) {
       this.fx = {
         kind: 'dice',
@@ -234,6 +247,10 @@ export class GameView {
     if (this.fx.kind === 'walk') {
       const total = this.fx.path.length * this.fx.stepMs
       if (now - this.fx.startMs >= total) this.fx = { kind: 'idle' }
+      return
+    }
+    if (this.fx.kind === 'combat') {
+      if (now - this.fx.startMs >= this.fx.durationMs) this.fx = { kind: 'idle' }
     }
   }
 
@@ -260,6 +277,9 @@ export class GameView {
       ...this.state.players.flatMap((p) => p.hand),
       ...this.state.territories.map((t) => t.creature)
     ]
+    const battle = this.state.lastBattle
+    if (battle?.attacker) cards.push(battle.attacker, battle.defender)
+    if (battle?.item) cards.push(battle.item)
     this.art.preload(cards)
   }
 
@@ -299,9 +319,20 @@ export class GameView {
     }
   }
 
+  private inspectAt(w: number, h: number, x: number, y: number): InspectTarget | null {
+    const target = inspectTargetAt(this.state, this.layout, w, h, x, y)
+    if (
+      target?.kind === 'land' &&
+      (this.state.phase === 'select_item' || this.state.phase === 'battle_result')
+    ) {
+      return null
+    }
+    return target
+  }
+
   private handleMove(e: MouseEvent): void {
     const { x, y, w, h } = this.pointerOnCanvas(e)
-    const next = inspectTargetAt(this.state, this.layout, w, h, x, y)
+    const next = this.inspectAt(w, h, x, y)
     if (inspectKey(next) === inspectKey(this.hover)) return
     this.hover = next
     this.canvas.style.cursor = next ? 'pointer' : ''
@@ -340,7 +371,7 @@ export class GameView {
       return
     }
 
-    const inspect = inspectTargetAt(this.state, this.layout, w, h, x, y)
+    const inspect = this.inspectAt(w, h, x, y)
     this.pinned = inspect
     this.syncInspect()
     if (this.fx.kind === 'idle') this.drawNow()
@@ -429,7 +460,7 @@ export class GameView {
       const p = squarePosition(layout, board, id)
       return { x: p.x + offset, y: p.y + squareSize / 2 + 10 }
     }
-    if (this.fx.kind !== 'idle' && this.fx.playerId === player.id) {
+    if ((this.fx.kind === 'dice' || this.fx.kind === 'walk') && this.fx.playerId === player.id) {
       if (this.fx.kind === 'dice') return atSquare(this.fx.fromId)
       const elapsed = Math.max(0, now - this.fx.startMs)
       const idx = Math.min(this.fx.path.length - 1, Math.floor(elapsed / this.fx.stepMs))
@@ -459,7 +490,17 @@ export class GameView {
       hoverKey
     )
     drawHud(ctx, this.state, w, this.fx)
-    drawHand(ctx, this.state, w, h, getSelectableCardIds(this.state), this.art, hoverKey)
+    const selectable = getSelectableCardIds(this.state)
+    const previewItem =
+      this.state.phase === 'select_item' &&
+      this.hover?.kind === 'hand' &&
+      selectable.includes(this.hover.card.instanceId)
+        ? this.hover.card
+        : null
+    const combat = combatViewFromState(this.state, previewItem)
+    const hpT = this.fx.kind === 'combat' ? combatHpT(now, this.fx.startMs, this.fx.durationMs) : 1
+    if (combat) drawCombatOverlay(ctx, combat, this.art, w, h, hpT)
+    drawHand(ctx, this.state, w, h, selectable, this.art, hoverKey)
     drawActionBar(
       ctx,
       this.state,
@@ -638,6 +679,9 @@ function fxPhaseLabel(state: GameState, fx: Fx): string {
   const name = state.players[state.currentPlayerIndex]?.name ?? ''
   if (fx.kind === 'dice') return `${name} — rolling`
   if (fx.kind === 'walk') return `${name} — moving`
+  if (fx.kind === 'combat' || state.phase === 'battle_result' || state.phase === 'select_item') {
+    return `${name} — battle`
+  }
   return getPhaseLabel(state)
 }
 
@@ -747,10 +791,6 @@ function drawActionBar(
     return
   }
   if (state.phase === 'battle_result') {
-    ctx.fillStyle = 'rgba(255,255,255,0.85)'
-    ctx.font = '12px system-ui,sans-serif'
-    ctx.textAlign = 'center'
-    ctx.fillText(state.lastBattle?.message ?? 'Battle over', w / 2, y - 16)
     drawButton(ctx, w / 2 - 70, y, 140, 40, 'Continue', true)
     return
   }

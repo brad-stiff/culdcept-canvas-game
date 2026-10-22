@@ -125,6 +125,15 @@ export type BattleOutcome = {
   attackerRemainingHp: number
   defenderRemainingHp: number
   message: string
+  attacker: MatchCard
+  defender: MatchCard
+  item: MatchCard | null
+  attackerSt: number
+  defenderSt: number
+  attackerHp: number
+  defenderHp: number
+  squareName: string
+  landLevel: number
 }
 
 export type GameConfig = {
