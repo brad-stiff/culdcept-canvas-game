@@ -819,9 +819,11 @@ function drawActionBar(
     ctx.font = '12px system-ui,sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText(
-      state.pendingAction === 'exchange'
-        ? 'Click a highlighted land to exchange'
-        : 'Click a highlighted land to move',
+      state.pendingAction === 'territory'
+        ? 'Click one of your lands'
+        : state.pendingAction === 'exchange'
+          ? 'Click a highlighted land to exchange'
+          : 'Click a highlighted land to move',
       w / 2,
       y - 16
     )
@@ -841,6 +843,7 @@ function drawActionBar(
     fortune: 'Fortune',
     exchange: 'Exchange',
     transform: 'Transform',
+    territory: 'Territory',
     skip: 'Skip'
   }
   let i = 0

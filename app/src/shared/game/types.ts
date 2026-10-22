@@ -118,6 +118,7 @@ export type LandedAction =
   | 'fortune'
   | 'exchange'
   | 'transform'
+  | 'territory'
   | 'skip'
 
 export type BattleOutcome = {

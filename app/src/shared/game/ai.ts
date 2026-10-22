@@ -1,4 +1,10 @@
-import { emptyAdjacentLands, squareById, territoryAt, undirectedNeighbors } from './board'
+import {
+  emptyAdjacentLands,
+  levelUpCost,
+  squareById,
+  territoryAt,
+  undirectedNeighbors
+} from './board'
 import { estimateInvasionFavorable } from './combat'
 import { symbolLevelTotal, tollAmount } from './economy'
 import { spellHasHandledEffect } from './spells'
@@ -54,6 +60,20 @@ export function chooseAiAction(state: GameState): GameAction | null {
     const player = state.players[state.currentPlayerIndex]
     const fromId = state.selectedSquareId ?? player.position
     const terr = territoryAt(state, fromId)
+    if (state.pendingAction === 'territory') {
+      const ranked = [...targets].sort((a, b) => {
+        const ta = territoryAt(state, a)
+        const tb = territoryAt(state, b)
+        if (!ta || !tb) return 0
+        const aCan =
+          ta.level < state.config.maxLandLevel && player.magic >= levelUpCost(ta.level) ? 1 : 0
+        const bCan =
+          tb.level < state.config.maxLandLevel && player.magic >= levelUpCost(tb.level) ? 1 : 0
+        if (aCan !== bCan) return bCan - aCan
+        return tb.level - ta.level
+      })
+      return { type: 'select_square', squareId: ranked[0] ?? targets[0] }
+    }
     if (state.pendingAction === 'exchange' && terr) {
       const better = targets.find((id) => {
         const other = territoryAt(state, id)
@@ -184,6 +204,8 @@ export function chooseAiAction(state: GameState): GameAction | null {
     if (actions.includes('temple')) return { type: 'choose_action', action: 'temple' }
 
     if (actions.includes('fortune')) return { type: 'choose_action', action: 'fortune' }
+
+    if (actions.includes('territory')) return { type: 'choose_action', action: 'territory' }
 
     if (actions.includes('cast_spell') && player.magic > 200) {
       const hasReal = player.hand.some(

@@ -747,6 +747,11 @@ export function getAvailableActions(state: GameState): LandedAction[] {
       actions.push('transform')
     }
     actions.push('skip')
+  } else if (square.squareType === 'castle' || square.squareType === 'fort') {
+    if (state.territories.some((t) => t.ownerId === player.id)) {
+      actions.push('territory')
+    }
+    actions.push('skip')
   } else {
     actions.push('skip')
   }
@@ -807,7 +812,9 @@ export function getPhaseLabel(state: GameState): string {
     case 'select_spell':
       return `${name} — choose spell`
     case 'select_square':
-      return `${name} — choose destination`
+      return state.pendingAction === 'territory'
+        ? `${name} — choose a land`
+        : `${name} — choose destination`
     case 'choose_path':
       return `${name} — choose path`
     case 'territory_menu':
@@ -838,7 +845,24 @@ export function getMoveTargets(state: GameState): number[] {
   if (state.pendingAction === 'exchange') {
     return state.territories.filter((t) => t.ownerId === player.id && t.squareId !== squareId).map((t) => t.squareId)
   }
+  if (state.pendingAction === 'territory') {
+    return state.territories.filter((t) => t.ownerId === player.id).map((t) => t.squareId)
+  }
   return []
+}
+
+function openTerritoryFromCommand(state: GameState, destId: number): GameState {
+  const player = state.players[state.currentPlayerIndex]
+  const terr = territoryAt(state, destId)
+  if (!terr || terr.ownerId !== player.id) return state
+  const dest = squareById(state.config.board, destId)
+  return {
+    ...state,
+    phase: 'territory_menu',
+    selectedSquareId: destId,
+    pendingAction: null,
+    log: appendLog(state, `${player.name} commands ${dest.name}.`)
+  }
 }
 
 function moveCreatureTo(state: GameState, destId: number): GameState {
@@ -898,6 +922,7 @@ export function reduceGame(state: GameState, action: GameAction): GameState {
       if (state.phase !== 'select_square') return state
       if (state.pendingAction === 'move_creature') return moveCreatureTo(state, action.squareId)
       if (state.pendingAction === 'exchange') return exchangeCreatures(state, action.squareId)
+      if (state.pendingAction === 'territory') return openTerritoryFromCommand(state, action.squareId)
       return state
     case 'choose_action': {
       if (state.phase !== 'landed' && state.phase !== 'territory_menu') return state
@@ -922,6 +947,9 @@ export function reduceGame(state: GameState, action: GameAction): GameState {
       }
       if (action.action === 'exchange') {
         return { ...state, phase: 'select_square', pendingAction: 'exchange' }
+      }
+      if (action.action === 'territory') {
+        return { ...state, phase: 'select_square', pendingAction: 'territory' }
       }
       if (action.action === 'transform') return transformLand(state)
       if (action.action === 'territory_ability') return useTerritoryAbility(state)

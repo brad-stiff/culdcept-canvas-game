@@ -11,7 +11,7 @@ import {
 import { COLOSSEUM_BOARD, COLOSSEUM_CONFIG } from './maps/colosseum'
 import { listSagaCards } from '../cards/catalog'
 import { getMapConfig } from './maps'
-import { getAvailableActions, reduceGame, startMatch } from './state'
+import { getAvailableActions, getMoveTargets, reduceGame, startMatch } from './state'
 import { tryResolveSpell } from './spells'
 import type { MatchCard } from './types'
 
@@ -272,6 +272,51 @@ describe('Crossroads forks', () => {
     expect(rolled.pendingSteps).toBeGreaterThan(0)
     const chosen = reduceGame(rolled, { type: 'choose_path', squareId: 1 })
     expect(chosen.players[0].position).not.toBe(0)
+  })
+})
+
+describe('castle and fort territory command', () => {
+  it('lets a cepter command any owned land from a fort', () => {
+    let state = startMatch(['Alice', 'Bob'])
+    const gob = creature({ name: 'Gob', st: 20, hp: 20, element: 'fire' })
+    const wolf = creature({ name: 'Wolf', st: 25, hp: 20, element: 'fire' })
+    state = {
+      ...state,
+      players: [
+        { ...state.players[0], position: 5, magic: 1000 },
+        state.players[1]
+      ],
+      phase: 'landed',
+      selectedSquareId: 5,
+      territories: [
+        { squareId: 1, ownerId: 0, creature: gob, level: 1, tollHalved: false },
+        { squareId: 2, ownerId: 0, creature: wolf, level: 2, tollHalved: false }
+      ]
+    }
+    expect(getAvailableActions(state)).toContain('territory')
+    state = reduceGame(state, { type: 'choose_action', action: 'territory' })
+    expect(state.phase).toBe('select_square')
+    expect(getMoveTargets(state).sort((a, b) => a - b)).toEqual([1, 2])
+    state = reduceGame(state, { type: 'select_square', squareId: 2 })
+    expect(state.phase).toBe('territory_menu')
+    expect(state.selectedSquareId).toBe(2)
+    expect(getAvailableActions(state)).toContain('level_up')
+  })
+
+  it('offers no territory command from the castle with no lands', () => {
+    let state = startMatch(['Alice', 'Bob'])
+    state = {
+      ...state,
+      players: [
+        { ...state.players[0], position: 0, magic: 1000 },
+        state.players[1]
+      ],
+      phase: 'landed',
+      selectedSquareId: 0,
+      territories: []
+    }
+    expect(getAvailableActions(state)).not.toContain('territory')
+    expect(getAvailableActions(state)).toContain('skip')
   })
 })
 
