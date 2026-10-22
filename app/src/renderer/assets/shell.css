@@ -48,9 +48,134 @@ body {
   font-size: 14px;
 }
 
+#hud.hud-match #hud-status {
+  display: none;
+}
+
+.match-left {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: min(252px, 30vw);
+  max-height: calc(100% - 200px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.match-left[hidden],
+.match-menu-btn[hidden] {
+  display: none !important;
+}
+
+.match-phase {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(12, 16, 22, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.match-map {
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: rgba(232, 234, 237, 0.55);
+}
+
+.match-phase-label {
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.match-goal {
+  font-size: 0.75rem;
+  color: rgba(232, 234, 237, 0.6);
+}
+
+.cepter-strip {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border-radius: 10px;
+  background: rgba(12, 16, 22, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.cepter {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+
+.cepter.is-turn {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.cepter-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--cepter, #888);
+}
+
+.cepter-name {
+  font-size: 0.82rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cepter-magic {
+  font-size: 0.75rem;
+  color: rgba(232, 234, 237, 0.7);
+  font-variant-numeric: tabular-nums;
+}
+
+.match-log {
+  margin: 0;
+  padding: 8px 10px;
+  list-style: none;
+  border-radius: 10px;
+  background: rgba(12, 16, 22, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: auto;
+  pointer-events: auto;
+  min-height: 72px;
+  max-height: min(240px, 32vh);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: rgba(232, 234, 237, 0.72);
+}
+
+.match-log li {
+  margin: 0 0 6px;
+}
+
+.match-log li:last-child {
+  margin-bottom: 0;
+  color: rgba(232, 234, 237, 0.92);
+}
+
+.match-menu-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  pointer-events: auto;
+  background: rgba(12, 16, 22, 0.88);
+}
+
 .inspect-card {
   position: absolute;
-  top: 92px;
+  top: 52px;
   right: 16px;
   width: min(280px, 38vw);
   max-height: calc(100% - 220px);

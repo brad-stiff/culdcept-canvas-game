@@ -15,6 +15,14 @@
       <canvas id="game" aria-label="Game canvas"></canvas>
       <div id="hud" aria-label="Heads up display">
         <div class="hud-panel" id="hud-status">HUD</div>
+        <div id="match-left" class="match-left" hidden>
+          <p id="match-phase" class="match-phase"></p>
+          <ul id="cepter-strip" class="cepter-strip"></ul>
+          <ol id="match-log" class="match-log" aria-label="Match log"></ol>
+        </div>
+        <button type="button" id="btn-match-menu" class="btn-ghost match-menu-btn" hidden>
+          Menu
+        </button>
         <aside id="inspect-card" class="inspect-card" hidden aria-live="polite"></aside>
       </div>
     </div>

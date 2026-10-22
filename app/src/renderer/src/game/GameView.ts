@@ -1,6 +1,5 @@
 import { squareById } from '../../../shared/game/board'
 import { chooseAiAction } from '../../../shared/game/ai'
-import { totalMagic } from '../../../shared/game/economy'
 import { loopLayoutPositions } from '../../../shared/game/maps/layout'
 import { PLAYER_COLORS } from '../../../shared/game/playerColors'
 import {
@@ -26,6 +25,14 @@ import { CardArtCache, drawImageCover } from './cardArtCache'
 import { combatHpT, drawCombatOverlay } from './combatView'
 import { createDiceSpin, diceProgress, diceRotation, drawDie, type DiceSpin } from './dice'
 import { renderInspectPanel } from './inspectPanel'
+import {
+  type MatchChromeEls,
+  hideMatchChrome,
+  matchChromeKey,
+  matchChromeModel,
+  renderMatchChrome,
+  showMatchChrome
+} from './matchChrome'
 import {
   type BoardLayout,
   type InspectTarget,
@@ -76,6 +83,7 @@ export type GameViewOptions = {
   runAi?: boolean
   initialState?: GameState
   inspectEl?: HTMLElement | null
+  chromeEls?: MatchChromeEls
 }
 
 export class GameView {
@@ -94,6 +102,9 @@ export class GameView {
   private onLocalAction: ((action: GameAction) => void) | null
   private runAiFlag: boolean
   private inspectEl: HTMLElement | null
+  private chromeEls: MatchChromeEls
+  private chromeKey = ''
+  private boundMenu: () => void
   private art: CardArtCache
   private hover: InspectTarget | null = null
   private pinned: InspectTarget | null = null
@@ -111,6 +122,7 @@ export class GameView {
     this.runAiFlag = opts.runAi !== false
     this.inspectEl =
       opts.inspectEl !== undefined ? opts.inspectEl : document.getElementById('inspect-card')
+    this.chromeEls = opts.chromeEls ?? queryMatchChrome()
     this.art = new CardArtCache(() => this.drawNow())
     this.onExit = onExit
     this.boundClick = (e) => this.handleClick(e)
@@ -118,11 +130,14 @@ export class GameView {
     this.boundMove = (e) => this.handleMove(e)
     this.boundLeave = (e) => this.handleLeave(e)
     this.boundInspectLeave = (e) => this.handleLeave(e)
+    this.boundMenu = () => this.onExit()
     this.canvas.addEventListener('click', this.boundClick)
     this.canvas.addEventListener('mousemove', this.boundMove)
     this.canvas.addEventListener('mouseleave', this.boundLeave)
     this.inspectEl?.addEventListener('mouseleave', this.boundInspectLeave)
+    this.chromeEls.menu?.addEventListener('click', this.boundMenu)
     window.addEventListener('keydown', this.boundKey)
+    showMatchChrome(this.chromeEls)
     this.preloadArt()
     this.queueAi()
   }
@@ -143,12 +158,15 @@ export class GameView {
     this.canvas.removeEventListener('mousemove', this.boundMove)
     this.canvas.removeEventListener('mouseleave', this.boundLeave)
     this.inspectEl?.removeEventListener('mouseleave', this.boundInspectLeave)
+    this.chromeEls.menu?.removeEventListener('click', this.boundMenu)
     window.removeEventListener('keydown', this.boundKey)
     if (this.aiTimer !== null) window.clearTimeout(this.aiTimer)
     if (this.raf !== null) window.cancelAnimationFrame(this.raf)
     this.fx = { kind: 'idle' }
     this.art.dispose()
     renderInspectPanel(this.inspectEl, null)
+    hideMatchChrome(this.chromeEls)
+    this.chromeKey = ''
     this.canvas.style.cursor = ''
   }
 
@@ -366,11 +384,6 @@ export class GameView {
   private handleClick(e: MouseEvent): void {
     const { x, y, w, h } = this.pointerOnCanvas(e)
 
-    if (hitRect(x, y, w - 110, 12, 96, 32)) {
-      this.onExit()
-      return
-    }
-
     const inspect = this.inspectAt(w, h, x, y)
     this.pinned = inspect
     this.syncInspect()
@@ -489,7 +502,7 @@ export class GameView {
       this.art,
       hoverKey
     )
-    drawHud(ctx, this.state, w, this.fx)
+    this.syncChrome()
     const selectable = getSelectableCardIds(this.state)
     const previewItem =
       this.state.phase === 'select_item' &&
@@ -508,9 +521,29 @@ export class GameView {
       h,
       this.fx.kind === 'dice' ? 'rolling' : this.fx.kind === 'walk' ? 'moving' : null
     )
-    drawLog(ctx, this.state, w)
     drawDiceOverlay(ctx, this.state, this.fx, w, h, now)
+    drawGameOver(ctx, this.state, w, h)
     ctx.restore()
+  }
+
+  private syncChrome(): void {
+    const model = matchChromeModel(this.state, fxPhaseLabel(this.state, this.fx))
+    const key = matchChromeKey(model)
+    if (key === this.chromeKey) return
+    this.chromeKey = key
+    renderMatchChrome(this.chromeEls, model)
+  }
+}
+
+function queryMatchChrome(): MatchChromeEls {
+  const menu = document.getElementById('btn-match-menu')
+  return {
+    root: document.getElementById('hud'),
+    left: document.getElementById('match-left'),
+    phase: document.getElementById('match-phase'),
+    strip: document.getElementById('cepter-strip'),
+    log: document.getElementById('match-log'),
+    menu: menu instanceof HTMLButtonElement ? menu : null
   }
 }
 
@@ -685,36 +718,6 @@ function fxPhaseLabel(state: GameState, fx: Fx): string {
   return getPhaseLabel(state)
 }
 
-function drawHud(ctx: CanvasRenderingContext2D, state: GameState, w: number, fx: Fx): void {
-  const panelH = 20 + state.players.length * 18
-  ctx.fillStyle = 'rgba(12,16,22,0.88)'
-  roundRect(ctx, 12, 12, w - 24, Math.max(78, panelH + 36), 10)
-  ctx.fill()
-
-  ctx.font = '12px system-ui,sans-serif'
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'top'
-  state.players.forEach((p, i) => {
-    ctx.fillStyle = p.color || PLAYER_COLORS[i] || '#ccc'
-    const turn = i === state.currentPlayerIndex ? ' ›' : ''
-    ctx.fillText(
-      `${p.name}${p.isAi ? ' (AI)' : ''}: ${p.magic}G · ${totalMagic(state, p)}G${turn}`,
-      24,
-      22 + i * 18
-    )
-  })
-
-  ctx.fillStyle = '#e8eaed'
-  ctx.textAlign = 'center'
-  ctx.font = '14px system-ui,sans-serif'
-  ctx.fillText(`${state.config.mapName} — ${fxPhaseLabel(state, fx)}`, w / 2, 24)
-  ctx.fillStyle = 'rgba(255,255,255,0.55)'
-  ctx.font = '12px system-ui,sans-serif'
-  ctx.fillText(`Goal ${state.config.targetMagic}G · ${state.players.length}p`, w / 2, 46)
-
-  drawButton(ctx, w - 110, 12, 96, 32, 'Menu (Esc)', false)
-}
-
 function drawHand(
   ctx: CanvasRenderingContext2D,
   state: GameState,
@@ -875,29 +878,20 @@ function drawDiceOverlay(
     return
   }
   if (state.lastRoll == null || state.phase === 'roll') return
-  drawDie(ctx, w / 2, 78, 36, state.lastRoll, state.config.maxDie, { x: -0.42, y: 0.58, z: 0.06 })
+  drawDie(ctx, w / 2, 48, 36, state.lastRoll, state.config.maxDie, { x: -0.42, y: 0.58, z: 0.06 })
 }
 
-function drawLog(ctx: CanvasRenderingContext2D, state: GameState, w: number): void {
-  const lines = state.log.slice(-5)
-  ctx.font = '11px system-ui,sans-serif'
-  ctx.textAlign = 'right'
-  ctx.textBaseline = 'top'
-  ctx.fillStyle = 'rgba(255,255,255,0.5)'
-  for (let i = 0; i < lines.length; i++) {
-    ctx.fillText(lines[i].slice(0, 64), w - 20, 100 + i * 14)
-  }
-
+function drawGameOver(ctx: CanvasRenderingContext2D, state: GameState, w: number, h: number): void {
   if (state.phase === 'game_over' && state.winnerId !== null) {
     ctx.fillStyle = 'rgba(0,0,0,0.55)'
-    ctx.fillRect(0, 0, w, ctx.canvas.height)
+    ctx.fillRect(0, 0, w, h)
     ctx.fillStyle = '#fff'
     ctx.font = 'bold 26px system-ui,sans-serif'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText(`${state.players[state.winnerId].name} wins!`, w / 2, ctx.canvas.height / 2 - 16)
+    ctx.fillText(`${state.players[state.winnerId].name} wins!`, w / 2, h / 2 - 16)
     ctx.font = '15px system-ui,sans-serif'
-    ctx.fillText('Press Esc for menu', w / 2, ctx.canvas.height / 2 + 18)
+    ctx.fillText('Press Esc for menu', w / 2, h / 2 + 18)
   }
 }
 
