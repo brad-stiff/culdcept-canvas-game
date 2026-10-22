@@ -1,3 +1,4 @@
+import { squareById } from '../../../shared/game/board'
 import { chooseAiAction } from '../../../shared/game/ai'
 import { totalMagic } from '../../../shared/game/economy'
 import { loopLayoutPositions } from '../../../shared/game/maps/layout'
@@ -20,14 +21,22 @@ import type {
   MatchSeat,
   Player
 } from '../../../shared/game/types'
+import { CardArtCache, drawImageCover } from './cardArtCache'
 import { createDiceSpin, diceProgress, diceRotation, drawDie, type DiceSpin } from './dice'
+import { renderInspectPanel } from './inspectPanel'
+import {
+  type BoardLayout,
+  type InspectTarget,
+  hitRect,
+  inspectKey,
+  inspectTargetAt,
+  squareHitSize,
+  squarePosition,
+  handLayout
+} from './matchLayout'
 import { easeInOut, lerp, movementPlan } from './motion'
 
-type Layout = {
-  width: number
-  height: number
-  squarePositions: { x: number; y: number }[]
-}
+type Layout = BoardLayout
 
 type Fx =
   | { kind: 'idle' }
@@ -58,6 +67,7 @@ export type GameViewOptions = {
   /** If false, do not run local AI (LAN clients). Default true. */
   runAi?: boolean
   initialState?: GameState
+  inspectEl?: HTMLElement | null
 }
 
 export class GameView {
@@ -66,12 +76,19 @@ export class GameView {
   private onExit: () => void
   private boundClick: (e: MouseEvent) => void
   private boundKey: (e: KeyboardEvent) => void
+  private boundMove: (e: MouseEvent) => void
+  private boundLeave: (e: MouseEvent) => void
+  private boundInspectLeave: (e: MouseEvent) => void
   private aiTimer: number | null = null
   private raf: number | null = null
   private fx: Fx = { kind: 'idle' }
   private localPlayerId: number | null
   private onLocalAction: ((action: GameAction) => void) | null
   private runAiFlag: boolean
+  private inspectEl: HTMLElement | null
+  private art: CardArtCache
+  private hover: InspectTarget | null = null
+  private pinned: InspectTarget | null = null
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -84,11 +101,21 @@ export class GameView {
     this.localPlayerId = opts.localPlayerId === undefined ? null : opts.localPlayerId
     this.onLocalAction = opts.onLocalAction ?? null
     this.runAiFlag = opts.runAi !== false
+    this.inspectEl =
+      opts.inspectEl !== undefined ? opts.inspectEl : document.getElementById('inspect-card')
+    this.art = new CardArtCache(() => this.drawNow())
     this.onExit = onExit
     this.boundClick = (e) => this.handleClick(e)
     this.boundKey = (e) => this.handleKey(e)
+    this.boundMove = (e) => this.handleMove(e)
+    this.boundLeave = (e) => this.handleLeave(e)
+    this.boundInspectLeave = (e) => this.handleLeave(e)
     this.canvas.addEventListener('click', this.boundClick)
+    this.canvas.addEventListener('mousemove', this.boundMove)
+    this.canvas.addEventListener('mouseleave', this.boundLeave)
+    this.inspectEl?.addEventListener('mouseleave', this.boundInspectLeave)
     window.addEventListener('keydown', this.boundKey)
+    this.preloadArt()
     this.queueAi()
   }
 
@@ -105,10 +132,16 @@ export class GameView {
 
   destroy(): void {
     this.canvas.removeEventListener('click', this.boundClick)
+    this.canvas.removeEventListener('mousemove', this.boundMove)
+    this.canvas.removeEventListener('mouseleave', this.boundLeave)
+    this.inspectEl?.removeEventListener('mouseleave', this.boundInspectLeave)
     window.removeEventListener('keydown', this.boundKey)
     if (this.aiTimer !== null) window.clearTimeout(this.aiTimer)
     if (this.raf !== null) window.cancelAnimationFrame(this.raf)
     this.fx = { kind: 'idle' }
+    this.art.dispose()
+    renderInspectPanel(this.inspectEl, null)
+    this.canvas.style.cursor = ''
   }
 
   resize(cssWidth: number, cssHeight: number): void {
@@ -135,6 +168,8 @@ export class GameView {
   }
 
   private beginPresentation(prev: GameState, next: GameState): void {
+    this.preloadArt()
+    this.refreshInspectTargets()
     const plan = movementPlan(prev, next)
     if (!plan) {
       this.fx = { kind: 'idle' }
@@ -220,6 +255,72 @@ export class GameView {
     }, 280)
   }
 
+  private preloadArt(): void {
+    const cards = [
+      ...this.state.players.flatMap((p) => p.hand),
+      ...this.state.territories.map((t) => t.creature)
+    ]
+    this.art.preload(cards)
+  }
+
+  private syncInspect(): void {
+    renderInspectPanel(this.inspectEl, this.hover ?? this.pinned)
+  }
+
+  private refreshInspectTargets(): void {
+    this.hover = this.rebindInspect(this.hover)
+    this.pinned = this.rebindInspect(this.pinned)
+    this.syncInspect()
+  }
+
+  private rebindInspect(target: InspectTarget | null): InspectTarget | null {
+    if (!target) return null
+    if (target.kind === 'hand') {
+      const player = this.state.players[this.state.currentPlayerIndex]
+      const card = player?.hand.find((c) => c.instanceId === target.card.instanceId)
+      return card ? { kind: 'hand', card } : null
+    }
+    const terr = this.state.territories.find((t) => t.squareId === target.territory.squareId)
+    if (!terr) return null
+    return {
+      kind: 'land',
+      territory: terr,
+      square: squareById(this.state.config.board, terr.squareId)
+    }
+  }
+
+  private pointerOnCanvas(e: MouseEvent): { x: number; y: number; w: number; h: number } {
+    const rect = this.canvas.getBoundingClientRect()
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      w: rect.width,
+      h: rect.height
+    }
+  }
+
+  private handleMove(e: MouseEvent): void {
+    const { x, y, w, h } = this.pointerOnCanvas(e)
+    const next = inspectTargetAt(this.state, this.layout, w, h, x, y)
+    if (inspectKey(next) === inspectKey(this.hover)) return
+    this.hover = next
+    this.canvas.style.cursor = next ? 'pointer' : ''
+    this.syncInspect()
+    if (this.fx.kind === 'idle') this.drawNow()
+  }
+
+  private handleLeave(e: MouseEvent): void {
+    const next = e.relatedTarget
+    if (next instanceof Node && (this.canvas.contains(next) || this.inspectEl?.contains(next))) {
+      return
+    }
+    if (!this.hover) return
+    this.hover = null
+    this.canvas.style.cursor = ''
+    this.syncInspect()
+    if (this.fx.kind === 'idle') this.drawNow()
+  }
+
   private handleKey(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       this.onExit()
@@ -232,16 +333,17 @@ export class GameView {
   }
 
   private handleClick(e: MouseEvent): void {
-    const rect = this.canvas.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
-    const w = rect.width
-    const h = rect.height
+    const { x, y, w, h } = this.pointerOnCanvas(e)
 
     if (hitRect(x, y, w - 110, 12, 96, 32)) {
       this.onExit()
       return
     }
+
+    const inspect = inspectTargetAt(this.state, this.layout, w, h, x, y)
+    this.pinned = inspect
+    this.syncInspect()
+    if (this.fx.kind === 'idle') this.drawNow()
 
     if (!this.canControlCurrent()) return
 
@@ -267,10 +369,9 @@ export class GameView {
           ? getMoveTargets(this.state)
           : []
     if (this.layout && pathIds.length > 0) {
-      const squareSize = Math.max(40, Math.min(this.layout.width, this.layout.height) * 0.07)
+      const squareSize = squareHitSize(this.layout)
       for (const id of pathIds) {
-        const idx = this.state.config.board.findIndex((s) => s.id === id)
-        const pos = this.layout.squarePositions[idx >= 0 ? idx : id]
+        const pos = squarePosition(this.layout, this.state.config.board, id)
         if (!pos) continue
         if (hitRect(x, y, pos.x - squareSize / 2, pos.y - squareSize / 2, squareSize, squareSize)) {
           if (this.state.phase === 'choose_path')
@@ -302,15 +403,11 @@ export class GameView {
 
     const selectable = getSelectableCardIds(this.state)
     const hand = this.state.players[this.state.currentPlayerIndex].hand
-    const cardW = 100
-    const gap = 8
-    const totalW = hand.length * cardW + Math.max(0, hand.length - 1) * gap
-    const startX = (w - totalW) / 2
-    const cardY = h - 168
+    const layout = handLayout(hand.length, w, h)
     for (let hi = 0; hi < hand.length; hi++) {
       const card = hand[hi]
-      const cx = startX + hi * (cardW + gap)
-      if (hitRect(x, y, cx, cardY, cardW, 96)) {
+      const cx = layout.startX + hi * (layout.cardW + layout.gap)
+      if (hitRect(x, y, cx, layout.y, layout.cardW, layout.cardH)) {
         if (!selectable.includes(card.instanceId)) return
         if (this.state.phase === 'select_spell') {
           this.dispatch({ type: 'select_spell', cardId: card.instanceId })
@@ -326,10 +423,10 @@ export class GameView {
 
   private pieceXY(player: Player, layout: Layout, now: number): { x: number; y: number } {
     const board = this.state.config.board
-    const squareSize = Math.max(40, Math.min(layout.width, layout.height) * 0.07)
+    const squareSize = squareHitSize(layout)
     const offset = player.id === 0 ? -12 : player.id === 1 ? 12 : player.id === 2 ? -22 : 22
     const atSquare = (id: number): { x: number; y: number } => {
-      const p = posForId(layout, board, id)
+      const p = squarePosition(layout, board, id)
       return { x: p.x + offset, y: p.y + squareSize / 2 + 10 }
     }
     if (this.fx.kind !== 'idle' && this.fx.playerId === player.id) {
@@ -352,9 +449,17 @@ export class GameView {
     ctx.save()
     ctx.clearRect(0, 0, w, h)
     drawBackground(ctx, w, h)
-    drawBoard(ctx, this.state, this.layout, (p) => this.pieceXY(p, this.layout!, now))
+    const hoverKey = inspectKey(this.hover ?? this.pinned)
+    drawBoard(
+      ctx,
+      this.state,
+      this.layout,
+      (p) => this.pieceXY(p, this.layout!, now),
+      this.art,
+      hoverKey
+    )
     drawHud(ctx, this.state, w, this.fx)
-    drawHand(ctx, this.state, w, h, getSelectableCardIds(this.state))
+    drawHand(ctx, this.state, w, h, getSelectableCardIds(this.state), this.art, hoverKey)
     drawActionBar(
       ctx,
       this.state,
@@ -366,10 +471,6 @@ export class GameView {
     drawDiceOverlay(ctx, this.state, this.fx, w, h, now)
     ctx.restore()
   }
-}
-
-function hitRect(px: number, py: number, x: number, y: number, w: number, h: number): boolean {
-  return px >= x && px <= x + w && py >= y && py <= y + h
 }
 
 function computeLayout(w: number, h: number, config: GameConfig): Layout {
@@ -435,24 +536,17 @@ function squareFill(square: { squareType: string; terrain: string }): string {
   }
 }
 
-function posForId(
-  layout: Layout,
-  board: GameState['config']['board'],
-  id: number
-): { x: number; y: number } {
-  const idx = board.findIndex((s) => s.id === id)
-  return layout.squarePositions[idx >= 0 ? idx : id]
-}
-
 function drawBoard(
   ctx: CanvasRenderingContext2D,
   state: GameState,
   layout: Layout,
-  pieceXY: (player: Player) => { x: number; y: number }
+  pieceXY: (player: Player) => { x: number; y: number },
+  art: CardArtCache,
+  hoverKey: string
 ): void {
   const { squarePositions } = layout
   const board = state.config.board
-  const squareSize = Math.max(40, Math.min(layout.width, layout.height) * 0.07)
+  const squareSize = squareHitSize(layout)
   const pathIds = new Set(
     state.phase === 'choose_path'
       ? getPathChoices(state)
@@ -463,12 +557,12 @@ function drawBoard(
 
   const drawn = new Set<string>()
   for (const square of board) {
-    const a = posForId(layout, board, square.id)
+    const a = squarePosition(layout, board, square.id)
     for (const dest of square.exits) {
       const key = square.id < dest ? `${square.id}-${dest}` : `${dest}-${square.id}`
       if (drawn.has(key)) continue
       drawn.add(key)
-      const b = posForId(layout, board, dest)
+      const b = squarePosition(layout, board, dest)
       ctx.strokeStyle = 'rgba(255,255,255,0.12)'
       ctx.lineWidth = 3
       ctx.beginPath()
@@ -483,26 +577,46 @@ function drawBoard(
     const pos = squarePositions[i]
     const territory = state.territories.find((t) => t.squareId === square.id)
     const ownerColor = territory ? PLAYER_COLORS[territory.ownerId] : null
-    const highlight = pathIds.has(square.id)
+    const hovered = hoverKey === `land:${square.id}`
+    const highlight = pathIds.has(square.id) || hovered
+    const x = pos.x - squareSize / 2
+    const y = pos.y - squareSize / 2
 
+    ctx.save()
+    roundRect(ctx, x, y, squareSize, squareSize, 6)
+    ctx.clip()
     ctx.fillStyle = squareFill(square)
+    ctx.fillRect(x, y, squareSize, squareSize)
+    if (territory) {
+      const img = art.get(territory.creature.catalogId, territory.creature.name)
+      if (img) drawImageCover(ctx, img, x, y, squareSize, squareSize)
+    }
+    ctx.restore()
+
     ctx.strokeStyle = highlight ? '#e8c36a' : (ownerColor ?? 'rgba(255,255,255,0.25)')
     ctx.lineWidth = highlight ? 3 : ownerColor ? 3 : 1
-    roundRect(ctx, pos.x - squareSize / 2, pos.y - squareSize / 2, squareSize, squareSize, 6)
-    ctx.fill()
+    roundRect(ctx, x, y, squareSize, squareSize, 6)
     ctx.stroke()
 
     ctx.fillStyle = '#e8eaed'
     ctx.font = '10px system-ui,sans-serif'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    if (square.squareType === 'castle') ctx.fillText('Castle', pos.x, pos.y)
+    if (territory) {
+      const badgeW = 22
+      const badgeH = 13
+      ctx.fillStyle = 'rgba(8,10,14,0.72)'
+      roundRect(ctx, pos.x - badgeW / 2, pos.y + squareSize / 2 - badgeH - 3, badgeW, badgeH, 3)
+      ctx.fill()
+      ctx.fillStyle = '#e8eaed'
+      ctx.font = 'bold 9px system-ui,sans-serif'
+      ctx.fillText(`L${territory.level}`, pos.x, pos.y + squareSize / 2 - badgeH / 2 - 3)
+    } else if (square.squareType === 'castle') ctx.fillText('Castle', pos.x, pos.y)
     else if (square.squareType === 'fort') ctx.fillText('Fort', pos.x, pos.y)
     else if (square.squareType === 'shrine') ctx.fillText('Shrine', pos.x, pos.y)
     else if (square.squareType === 'warp') ctx.fillText('Warp', pos.x, pos.y)
     else if (square.squareType === 'temple') ctx.fillText('Temple', pos.x, pos.y)
     else if (square.squareType === 'fortune') ctx.fillText('Fortune', pos.x, pos.y)
-    else if (territory) ctx.fillText(`L${territory.level}`, pos.x, pos.y)
     else ctx.fillText(square.terrain[0]!.toUpperCase(), pos.x, pos.y)
   }
 
@@ -562,38 +676,46 @@ function drawHand(
   state: GameState,
   w: number,
   h: number,
-  selectable: string[]
+  selectable: string[],
+  art: CardArtCache,
+  hoverKey: string
 ): void {
   const player = state.players[state.currentPlayerIndex]
-  const cardW = 100
-  const gap = 8
-  const totalW = player.hand.length * cardW + Math.max(0, player.hand.length - 1) * gap
-  const startX = (w - totalW) / 2
-  const cardY = h - 168
+  const layout = handLayout(player.hand.length, w, h)
 
   for (let i = 0; i < player.hand.length; i++) {
     const card = player.hand[i]
-    const x = startX + i * (cardW + gap)
+    const x = layout.startX + i * (layout.cardW + layout.gap)
+    const y = layout.y
     const active = selectable.includes(card.instanceId)
+    const hovered = hoverKey === `hand:${card.instanceId}`
+    const img = art.get(card.catalogId, card.name)
+
+    ctx.save()
+    roundRect(ctx, x, y, layout.cardW, layout.cardH, 8)
+    ctx.clip()
     ctx.fillStyle = active ? '#2a3548' : '#1a1f28'
-    ctx.strokeStyle = active ? '#7eb6e8' : 'rgba(255,255,255,0.12)'
-    ctx.lineWidth = active ? 2 : 1
-    roundRect(ctx, x, cardY, cardW, 96, 8)
-    ctx.fill()
+    ctx.fillRect(x, y, layout.cardW, layout.cardH)
+    if (img) drawImageCover(ctx, img, x, y, layout.cardW, layout.cardH)
+    ctx.fillStyle = 'rgba(8,10,14,0.78)'
+    ctx.fillRect(x, y + layout.cardH - 34, layout.cardW, 34)
+    ctx.restore()
+
+    ctx.strokeStyle = hovered ? '#e8c36a' : active ? '#7eb6e8' : 'rgba(255,255,255,0.12)'
+    ctx.lineWidth = hovered || active ? 2 : 1
+    roundRect(ctx, x, y, layout.cardW, layout.cardH, 8)
     ctx.stroke()
 
     ctx.fillStyle = '#e8eaed'
-    ctx.font = 'bold 11px system-ui,sans-serif'
+    ctx.font = 'bold 10px system-ui,sans-serif'
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
-    ctx.fillText(card.name.slice(0, 12), x + 6, cardY + 6)
-    ctx.font = '10px system-ui,sans-serif'
-    ctx.fillStyle = 'rgba(255,255,255,0.65)'
-    ctx.fillText(`${card.kind} · ${card.cost}G`, x + 6, cardY + 24)
-    if (card.kind === 'creature') {
-      ctx.fillText(`ST ${card.st} / HP ${card.hp}`, x + 6, cardY + 40)
-      ctx.fillText(String(card.element ?? '—'), x + 6, cardY + 56)
-    }
+    ctx.fillText(card.name.slice(0, 11), x + 6, y + layout.cardH - 30)
+    ctx.font = '9px system-ui,sans-serif'
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'
+    const line =
+      card.kind === 'creature' ? `ST ${card.st} / HP ${card.hp}` : `${card.kind} · ${card.cost}G`
+    ctx.fillText(line, x + 6, y + layout.cardH - 16)
   }
 }
 

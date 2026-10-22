@@ -48,6 +48,59 @@ body {
   font-size: 14px;
 }
 
+.inspect-card {
+  position: absolute;
+  top: 92px;
+  right: 16px;
+  width: min(280px, 38vw);
+  max-height: calc(100% - 220px);
+  overflow: auto;
+  pointer-events: auto;
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(12, 16, 22, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-sizing: border-box;
+}
+
+.inspect-card[hidden] {
+  display: none !important;
+}
+
+.inspect-art {
+  width: 84px;
+  height: 116px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #12151c;
+  flex-shrink: 0;
+}
+
+.inspect-body {
+  min-width: 0;
+}
+
+.inspect-body h2 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.inspect-meta {
+  margin: 0;
+  font-size: 0.75rem;
+  color: rgba(232, 234, 237, 0.65);
+}
+
+.inspect-ability {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: rgba(232, 234, 237, 0.88);
+}
+
 #menu-layer {
   position: fixed;
   inset: 0;
