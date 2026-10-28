@@ -1,5 +1,6 @@
 import {
   filterCards,
+  getPs2Catalog,
   getRevoltCatalog,
   getSagaCatalog,
   type CardSource
@@ -24,8 +25,19 @@ function formatStats(card: SagaCard): string {
 }
 
 function sourceLabel(source: string): string {
-  if (source === 'culdcept-revolt') return 'Revolt'
+  if (source === 'culdcept-revolt') return 'Revolt extras'
+  if (source === 'culdcept-ps2') return 'PS2 extras'
   return 'Saga'
+}
+
+function sourceTotal(source: CardSource | 'all'): { total: number; label: string } {
+  const saga = getSagaCatalog().counts.total
+  const revolt = getRevoltCatalog().counts.total
+  const ps2 = getPs2Catalog().counts.total
+  if (source === 'culdcept-revolt') return { total: revolt, label: 'Revolt extras' }
+  if (source === 'culdcept-ps2') return { total: ps2, label: 'PS2 extras' }
+  if (source === 'all') return { total: saga + revolt + ps2, label: 'Saga + extras' }
+  return { total: saga, label: 'Saga' }
 }
 
 export function createLibraryController(opts: {
@@ -88,16 +100,9 @@ export function createLibraryController(opts: {
     const source = opts.sourceSelect.value as CardSource | 'all'
     const query = opts.searchInput.value
     const cards = filterCards({ kind, element, query, source })
-    const total =
-      source === 'culdcept-revolt'
-        ? getRevoltCatalog().counts.total
-        : source === 'all'
-          ? getSagaCatalog().counts.total + getRevoltCatalog().counts.total
-          : getSagaCatalog().counts.total
-    const gameLabel =
-      source === 'culdcept-revolt' ? 'Revolt' : source === 'all' ? 'Saga + Revolt' : 'Saga'
+    const { total, label } = sourceTotal(source)
 
-    opts.countLine.textContent = `${cards.length} of ${total} ${gameLabel} cards`
+    opts.countLine.textContent = `${cards.length} of ${total} ${label} cards`
     opts.listEl.innerHTML = ''
 
     for (const card of cards) {

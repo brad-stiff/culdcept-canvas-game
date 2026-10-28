@@ -15,8 +15,8 @@
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "start": "electron-vite preview",
-    "cards:parse": "node scripts/parse-saga-card-list.mjs && node scripts/parse-revolt-card-list.mjs",
-    "cards:art": "node scripts/download-saga-card-art.mjs && node scripts/download-revolt-card-art.mjs",
+    "cards:parse": "node scripts/parse-saga-card-list.mjs && node scripts/parse-revolt-card-list.mjs && node scripts/parse-ps2-card-list.mjs",
+    "cards:art": "node scripts/download-saga-card-art.mjs && node scripts/download-revolt-card-art.mjs && node scripts/download-ps2-card-art.mjs",
     "pack": "npm run build && electron-builder --dir",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win"

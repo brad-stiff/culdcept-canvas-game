@@ -5,6 +5,7 @@
  *
  * Source page embeds full-size images under /images/cards/cr3ds/{folder}/{file}.jpg
  * Saved as revolt-{slug}.jpg so they never overwrite Saga art.
+ * Only catalog ids are fetched (Revolt reprints of Saga names are omitted).
  *
  * Usage:
  *   node scripts/download-revolt-card-art.mjs

@@ -1,4 +1,4 @@
-import { listSagaCards } from '../cards/catalog'
+import { listPs2Cards, listRevoltCards, listSagaCards } from '../cards/catalog'
 import {
   buildBookFromCatalogIds,
   buildStarterBook,
@@ -71,17 +71,32 @@ describe('books', () => {
     const book = buildStarterBook(0)
     expect(book).toHaveLength(50)
     expect(book.every((c) => !c.catalogId.startsWith('revolt-'))).toBe(true)
+    expect(book.every((c) => !c.catalogId.startsWith('ps2-'))).toBe(true)
   })
 
-  it('validates an expanded mix that includes a Revolt creature', () => {
+  it('validates an expanded mix that includes a Revolt-only creature', () => {
     const saga = listSagaCards()
+    const extra = listRevoltCards().find((c) => c.kind === 'creature')
+    expect(extra).toBeDefined()
     const creatures = saga.filter((c) => c.kind === 'creature').slice(0, 33)
     const items = saga.filter((c) => c.kind === 'item').slice(0, 8)
     const spells = saga.filter((c) => c.kind === 'spell').slice(0, 8)
-    const ids = [...creatures, ...items, ...spells].map((c) => c.id).concat('revolt-goblin')
+    const ids = [...creatures, ...items, ...spells].map((c) => c.id).concat(extra!.id)
     expect(ids).toHaveLength(50)
     expect(validateBookCatalogIds(ids)).toEqual({ ok: true })
     const built = buildBookFromCatalogIds(ids)
-    expect(built.some((c) => c.catalogId === 'revolt-goblin')).toBe(true)
+    expect(built.some((c) => c.catalogId === extra!.id)).toBe(true)
+  })
+
+  it('validates an expanded mix that includes a PS2-only creature', () => {
+    const saga = listSagaCards()
+    const extra = listPs2Cards().find((c) => c.kind === 'creature')
+    expect(extra).toBeDefined()
+    const creatures = saga.filter((c) => c.kind === 'creature').slice(0, 33)
+    const items = saga.filter((c) => c.kind === 'item').slice(0, 8)
+    const spells = saga.filter((c) => c.kind === 'spell').slice(0, 8)
+    const ids = [...creatures, ...items, ...spells].map((c) => c.id).concat(extra!.id)
+    expect(validateBookCatalogIds(ids)).toEqual({ ok: true })
+    expect(buildBookFromCatalogIds(ids).some((c) => c.catalogId === extra!.id)).toBe(true)
   })
 })

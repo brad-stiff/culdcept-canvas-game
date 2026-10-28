@@ -138,7 +138,9 @@ export function createDeckBuilderController(opts: {
     selectedIds = [...book.catalogIds]
     opts.nameInput.value = book.name
     opts.savedSelect.value = book.id
-    opts.includeRevolt.checked = book.catalogIds.some((id) => id.startsWith('revolt-'))
+    opts.includeRevolt.checked = book.catalogIds.some(
+      (id) => id.startsWith('revolt-') || id.startsWith('ps2-')
+    )
     setStatus(`Loaded “${book.name}”.`, false)
     renderAll()
   }

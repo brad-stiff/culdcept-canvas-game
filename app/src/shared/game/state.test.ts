@@ -9,7 +9,7 @@ import {
   reducedAbilityDamage
 } from './globals'
 import { COLOSSEUM_BOARD, COLOSSEUM_CONFIG } from './maps/colosseum'
-import { listSagaCards } from '../cards/catalog'
+import { listRevoltCards, listSagaCards } from '../cards/catalog'
 import { getMapConfig } from './maps'
 import { getAvailableActions, getMoveTargets, reduceGame, startMatch } from './state'
 import { tryResolveSpell } from './spells'
@@ -90,20 +90,22 @@ describe('startMatch', () => {
     expect(state.config.board).toHaveLength(22)
   })
 
-  it('can start with an expanded book that includes a Revolt card', () => {
+  it('can start with an expanded book that includes a Revolt-only card', () => {
     const saga = listSagaCards()
+    const extra = listRevoltCards().find((c) => c.kind === 'creature')
+    expect(extra).toBeDefined()
     const bookCatalogIds = [
       ...saga.filter((c) => c.kind === 'creature').slice(0, 33).map((c) => c.id),
       ...saga.filter((c) => c.kind === 'item').slice(0, 8).map((c) => c.id),
       ...saga.filter((c) => c.kind === 'spell').slice(0, 8).map((c) => c.id),
-      'revolt-goblin'
+      extra!.id
     ]
     const state = startMatch([
       { name: 'Alice', isAi: false, bookCatalogIds },
       { name: 'Bob', isAi: true }
     ])
     const all = state.players[0].hand.concat(state.players[0].book)
-    expect(all.some((c) => c.catalogId === 'revolt-goblin')).toBe(true)
+    expect(all.some((c) => c.catalogId === extra!.id)).toBe(true)
   })
 })
 

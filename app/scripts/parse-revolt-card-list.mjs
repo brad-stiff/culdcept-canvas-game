@@ -4,6 +4,9 @@
  * into a structured JSON catalog. Every id is prefixed revolt- so names
  * never collide with the Saga catalog.
  *
+ * Cards that share a name with Saga are omitted — this clone stays on
+ * Saga rules and only keeps Revolt extras, not reprints/rebalances.
+ *
  * Usage: node scripts/parse-revolt-card-list.mjs
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
@@ -13,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = join(__dirname, '..')
 const sourcePath = join(root, 'data/sources/culdcept-revolt-complete-card-list.md')
+const sagaCatalogPath = join(root, 'src/shared/cards/sagaCatalog.json')
 const outPath = join(root, 'src/shared/cards/revoltCatalog.json')
 
 const CREATURE_LINE =
@@ -27,7 +31,15 @@ function slugify(name) {
     .replace(/^-|-$/g, '')
 }
 
+function sagaNameSet() {
+  const saga = JSON.parse(readFileSync(sagaCatalogPath, 'utf8'))
+  return new Set(
+    (saga.cards ?? []).map((c) => String(c.name ?? '').trim().toLowerCase()).filter(Boolean)
+  )
+}
+
 function parse() {
+  const sagaNames = sagaNameSet()
   const lines = readFileSync(sourcePath, 'utf8').split(/\r?\n/)
 
   /** @type {'creature' | 'item' | 'spell' | null} */
@@ -40,11 +52,20 @@ function parse() {
   /** @type {Array<Record<string, unknown>>} */
   const cards = []
   const seenIds = new Map()
+  let skippedOverlaps = 0
   /** @type {Record<string, unknown> | null} */
   let pending = null
 
   function flushPending() {
     if (!pending) return
+    const nameKey = String(pending.name ?? '')
+      .trim()
+      .toLowerCase()
+    if (sagaNames.has(nameKey)) {
+      skippedOverlaps += 1
+      pending = null
+      return
+    }
     const idBase = slugify(/** @type {string} */ (pending.name))
     let id = `revolt-${idBase}`
     const n = seenIds.get(id) ?? 0
@@ -189,7 +210,7 @@ function parse() {
   mkdirSync(dirname(outPath), { recursive: true })
   writeFileSync(outPath, `${JSON.stringify(catalog, null, 2)}\n`)
   console.log(
-    `Wrote ${catalog.counts.total} cards (${catalog.counts.creature} creatures, ${catalog.counts.item} items, ${catalog.counts.spell} spells) → ${outPath}`
+    `Wrote ${catalog.counts.total} unique Revolt cards (${catalog.counts.creature} creatures, ${catalog.counts.item} items, ${catalog.counts.spell} spells; skipped ${skippedOverlaps} Saga name overlaps) → ${outPath}`
   )
 }
 

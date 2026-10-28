@@ -42,6 +42,9 @@ const FIRE_UNLOCK = new Set([
   'Volcanic Dragon'
 ])
 
+/** Complete-list export omits ### Earth Creatures / ### Air Creatures. */
+const EARTH_UNLOCK = 'Angostura'
+
 function slugify(name) {
   return name
     .toLowerCase()
@@ -194,6 +197,10 @@ function parse() {
         element = 'fire'
         special = false
         fireUnlocked = true
+      }
+      if (kind === 'creature' && element === 'water' && name === EARTH_UNLOCK) {
+        element = 'earth'
+        special = false
       }
       pending = {
         name,
